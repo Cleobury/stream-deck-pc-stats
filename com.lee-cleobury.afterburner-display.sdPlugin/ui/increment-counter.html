@@ -149,6 +149,14 @@
     </div>
 
     <div class="field">
+        <label for="displayMode">Display Mode</label>
+        <select id="displayMode">
+            <option value="single">Single Stat</option>
+            <option value="dual">Dual Stat</option>
+        </select>
+    </div>
+
+    <div class="field">
         <label for="metricKey">Metric</label>
         <select id="metricKey"></select>
     </div>
@@ -159,6 +167,50 @@
             <input id="hideLabel" type="checkbox" style="width:18px;height:18px;flex-shrink:0;cursor:pointer;" title="Hide label on key" />
             <label for="hideLabel" style="font-size:11px;color:#71717a;flex-shrink:0;">Hide</label>
             <input id="label" type="text" value="GPU1 Temp" style="flex:1;" />
+        </div>
+    </div>
+
+    <div id="dualMetricFields" style="display:none; border:1px solid #3f3f3f; border-radius:6px; padding:10px; margin-bottom:12px;">
+        <div class="field" style="margin-bottom:8px;">
+            <label for="dualViewStyle">Dual Style</label>
+            <select id="dualViewStyle">
+                <option value="split">Split Values</option>
+                <option value="multi-line">Multi-Line Graph</option>
+                <option value="multi-dot">Multi-Dot Fill</option>
+            </select>
+        </div>
+        <div class="field" style="margin-bottom:8px;">
+            <label for="dualValueLayout">Dual Value Layout</label>
+            <select id="dualValueLayout">
+                <option value="top-bottom">Top / Bottom</option>
+                <option value="left-right">Left / Right</option>
+            </select>
+        </div>
+        <div class="field" style="margin-bottom:8px;">
+            <label for="dualValueOpacity">Dual Value Opacity (0.2-1.0): <span id="dualValueOpacityValue">0.90</span></label>
+            <input id="dualValueOpacity" type="range" min="0.2" max="1" step="0.05" value="0.9" />
+        </div>
+        <div class="field" style="margin-bottom:8px;">
+            <label for="secondaryMetricKey">Second Metric</label>
+            <select id="secondaryMetricKey"></select>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+            <label for="secondaryLabel">Second Label</label>
+            <input id="secondaryLabel" type="text" value="CPU Usage" />
+        </div>
+        <div class="field" style="margin-top:8px; margin-bottom:8px;">
+            <label>Primary Accent Color</label>
+            <div class="color-swatch-row">
+                <input type="color" id="primaryAccentColor" value="#22d3ee" />
+                <input type="text" id="primaryAccentColorText" value="#22d3ee" class="color-text" />
+            </div>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+            <label>Secondary Accent Color</label>
+            <div class="color-swatch-row">
+                <input type="color" id="secondaryAccentColor" value="#f59e0b" />
+                <input type="text" id="secondaryAccentColorText" value="#f59e0b" class="color-text" />
+            </div>
         </div>
     </div>
 
@@ -288,8 +340,16 @@
 
         const defaults = {
             endpointUrl: "http://localhost:9696/metrics",
+            displayMode: "single",
+            dualViewStyle: "split",
+            dualValueLayout: "top-bottom",
+            dualValueOpacity: 0.9,
             metricKey: "gpu1_temperature",
             label: "GPU1 Temp",
+            secondaryMetricKey: "cpu_usage",
+            secondaryLabel: "CPU Usage",
+            primaryAccentColor: "",
+            secondaryAccentColor: "",
             hideLabel: false,
             labelX: 72,
             labelY: 34,
@@ -339,8 +399,20 @@
             customTrackColor: document.getElementById("customTrackColor"),
             customTrackColorText: document.getElementById("customTrackColorText"),
             endpointUrl: document.getElementById("endpointUrl"),
+            displayMode: document.getElementById("displayMode"),
             metricKey: document.getElementById("metricKey"),
             label: document.getElementById("label"),
+            dualMetricFields: document.getElementById("dualMetricFields"),
+            dualViewStyle: document.getElementById("dualViewStyle"),
+            dualValueLayout: document.getElementById("dualValueLayout"),
+            dualValueOpacity: document.getElementById("dualValueOpacity"),
+            dualValueOpacityValue: document.getElementById("dualValueOpacityValue"),
+            secondaryMetricKey: document.getElementById("secondaryMetricKey"),
+            secondaryLabel: document.getElementById("secondaryLabel"),
+            primaryAccentColor: document.getElementById("primaryAccentColor"),
+            primaryAccentColorText: document.getElementById("primaryAccentColorText"),
+            secondaryAccentColor: document.getElementById("secondaryAccentColor"),
+            secondaryAccentColorText: document.getElementById("secondaryAccentColorText"),
             labelX: document.getElementById("labelX"),
             labelXValue: document.getElementById("labelXValue"),
             labelY: document.getElementById("labelY"),
@@ -409,8 +481,16 @@
         function normalize(input) {
             return {
                 endpointUrl: (input.endpointUrl || defaults.endpointUrl).trim(),
+                displayMode: normalizeDisplayMode(input.displayMode),
+                dualViewStyle: normalizeDualViewStyle(input.dualViewStyle),
+                dualValueLayout: normalizeDualValueLayout(input.dualValueLayout),
+                dualValueOpacity: clampNumber(input.dualValueOpacity, 0.2, 1, defaults.dualValueOpacity),
                 metricKey: (input.metricKey || defaults.metricKey).trim(),
                 label: (input.label !== undefined ? input.label : defaults.label).trim(),
+                secondaryMetricKey: (input.secondaryMetricKey || defaults.secondaryMetricKey).trim(),
+                secondaryLabel: (input.secondaryLabel !== undefined ? input.secondaryLabel : defaults.secondaryLabel).trim(),
+                primaryAccentColor: normalizeColor(input.primaryAccentColor, defaults.primaryAccentColor),
+                secondaryAccentColor: normalizeColor(input.secondaryAccentColor, defaults.secondaryAccentColor),
                 hideLabel: input.hideLabel === true,
                 labelX: clampInt(input.labelX, 8, 128, defaults.labelX),
                 labelY: clampInt(input.labelY, 12, 132, defaults.labelY),
@@ -450,6 +530,27 @@
         function normalizeTheme(value) {
             if (value === "neon" || value === "minimal" || value === "retro" || value === "custom") return value;
             return "default";
+        }
+
+        function normalizeDisplayMode(value) {
+            if (value === "dual") {
+                return value;
+            }
+            return "single";
+        }
+
+        function normalizeDualViewStyle(value) {
+            if (value === "multi-line" || value === "multi-dot") {
+                return value;
+            }
+            return "split";
+        }
+
+        function normalizeDualValueLayout(value) {
+            if (value === "left-right") {
+                return value;
+            }
+            return "top-bottom";
         }
 
         function normalizeSuffixMode(value) {
@@ -493,9 +594,17 @@
             setColorPair(controls.customAccentColor, controls.customAccentColorText, settings.customAccentColor);
             setColorPair(controls.customTrackColor, controls.customTrackColorText, settings.customTrackColor);
             controls.endpointUrl.value = settings.endpointUrl;
+            controls.displayMode.value = settings.displayMode;
+            controls.dualViewStyle.value = settings.dualViewStyle;
+            controls.dualValueLayout.value = settings.dualValueLayout;
+            controls.dualValueOpacity.value = settings.dualValueOpacity;
             controls.label.value = settings.label;
+            controls.secondaryLabel.value = settings.secondaryLabel;
+            setColorPair(controls.primaryAccentColor, controls.primaryAccentColorText, settings.primaryAccentColor || "#22d3ee");
+            setColorPair(controls.secondaryAccentColor, controls.secondaryAccentColorText, settings.secondaryAccentColor || "#f59e0b");
             controls.hideLabel.checked = settings.hideLabel;
             controls.label.disabled = settings.hideLabel;
+            updateDisplayModeControls();
             controls.labelX.value = settings.labelX;
             controls.labelY.value = settings.labelY;
             controls.labelSize.value = settings.labelSize;
@@ -517,6 +626,7 @@
             controls.decimals.value = settings.decimals;
             controls.refreshMs.value = settings.refreshMs;
             controls.lineSamples.value = settings.lineSamples;
+            controls.dualValueOpacityValue.textContent = Number(settings.dualValueOpacity).toFixed(2);
 
             if (controls.metricKey.options.length === 0) {
                 const option = document.createElement("option");
@@ -525,37 +635,58 @@
                 controls.metricKey.appendChild(option);
             }
             controls.metricKey.value = settings.metricKey;
+
+            if (controls.secondaryMetricKey.options.length === 0) {
+                const option = document.createElement("option");
+                option.value = settings.secondaryMetricKey;
+                option.textContent = settings.secondaryMetricKey;
+                controls.secondaryMetricKey.appendChild(option);
+            }
+            controls.secondaryMetricKey.value = settings.secondaryMetricKey;
         }
 
         function updateMetricOptions(keys, errorText) {
-            const selected = settings.metricKey;
+            const selectedPrimary = settings.metricKey;
+            const selectedSecondary = settings.secondaryMetricKey;
             controls.metricKey.innerHTML = "";
+            controls.secondaryMetricKey.innerHTML = "";
 
             if (keys.length === 0) {
-                const option = document.createElement("option");
-                option.value = selected;
-                option.textContent = selected;
-                controls.metricKey.appendChild(option);
+                addSelectOption(controls.metricKey, selectedPrimary);
+                addSelectOption(controls.secondaryMetricKey, selectedSecondary);
                 controls.status.textContent = errorText || "No metrics found from endpoint.";
                 return;
             }
 
             for (const key of keys) {
-                const option = document.createElement("option");
-                option.value = key;
-                option.textContent = key;
-                controls.metricKey.appendChild(option);
+                addSelectOption(controls.metricKey, key);
+                addSelectOption(controls.secondaryMetricKey, key);
             }
 
-            if (keys.includes(selected)) {
-                controls.metricKey.value = selected;
+            if (keys.includes(selectedPrimary)) {
+                controls.metricKey.value = selectedPrimary;
             } else {
                 controls.metricKey.value = keys[0];
                 settings.metricKey = keys[0];
                 saveSettings();
             }
 
+            if (keys.includes(selectedSecondary)) {
+                controls.secondaryMetricKey.value = selectedSecondary;
+            } else {
+                controls.secondaryMetricKey.value = keys[0];
+                settings.secondaryMetricKey = keys[0];
+                saveSettings();
+            }
+
             controls.status.textContent = `${keys.length} metrics loaded.`;
+        }
+
+        function addSelectOption(selectEl, value) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            selectEl.appendChild(option);
         }
 
         function requestMetricList() {
@@ -586,8 +717,16 @@
                 customAccentColor: controls.customAccentColorText.value,
                 customTrackColor: controls.customTrackColorText.value,
                 endpointUrl: controls.endpointUrl.value,
+                displayMode: controls.displayMode.value,
+                dualViewStyle: controls.dualViewStyle.value,
+                dualValueLayout: controls.dualValueLayout.value,
+                dualValueOpacity: controls.dualValueOpacity.value,
                 metricKey: controls.metricKey.value,
                 label: controls.label.value,
+                secondaryMetricKey: controls.secondaryMetricKey.value,
+                secondaryLabel: controls.secondaryLabel.value,
+                primaryAccentColor: controls.primaryAccentColorText.value,
+                secondaryAccentColor: controls.secondaryAccentColorText.value,
                 hideLabel: controls.hideLabel.checked,
                 labelX: controls.labelX.value,
                 labelY: controls.labelY.value,
@@ -667,6 +806,7 @@
             controls.valueYValue.textContent = controls.valueY.value;
             controls.valueSizeValue.textContent = controls.valueSize.value;
             controls.valueStrokeWidthValue.textContent = Number(controls.valueStrokeWidth.value).toFixed(2);
+            controls.dualValueOpacityValue.textContent = Number(controls.dualValueOpacity.value).toFixed(2);
         }
 
         function bindRangeSlider(control, valueLabel) {
@@ -675,6 +815,11 @@
                 saveSettings();
             });
             control.addEventListener("change", saveSettings);
+        }
+
+        function updateDisplayModeControls() {
+            const isDualMode = controls.displayMode.value === "dual";
+            controls.dualMetricFields.style.display = isDualMode ? "block" : "none";
         }
 
         function updateScaleControlsState() {
@@ -690,6 +835,8 @@
         bindColorPair(controls.customValueColor, controls.customValueColorText);
         bindColorPair(controls.customAccentColor, controls.customAccentColorText);
         bindColorPair(controls.customTrackColor, controls.customTrackColorText);
+        bindColorPair(controls.primaryAccentColor, controls.primaryAccentColorText);
+        bindColorPair(controls.secondaryAccentColor, controls.secondaryAccentColorText);
         bindColorPair(controls.labelStrokeColor, controls.labelStrokeColorText);
         bindColorPair(controls.valueStrokeColor, controls.valueStrokeColorText);
 
@@ -700,6 +847,19 @@
 
         controls.metricKey.addEventListener("change", saveSettings);
         controls.label.addEventListener("change", saveSettings);
+        controls.displayMode.addEventListener("change", () => {
+            updateDisplayModeControls();
+            saveSettings();
+        });
+        controls.secondaryMetricKey.addEventListener("change", saveSettings);
+        controls.secondaryLabel.addEventListener("change", saveSettings);
+        controls.dualViewStyle.addEventListener("change", saveSettings);
+        controls.dualValueLayout.addEventListener("change", saveSettings);
+        controls.dualValueOpacity.addEventListener("input", () => {
+            controls.dualValueOpacityValue.textContent = Number(controls.dualValueOpacity.value).toFixed(2);
+            saveSettings();
+        });
+        controls.dualValueOpacity.addEventListener("change", saveSettings);
         controls.hideLabel.addEventListener("change", () => {
             controls.label.disabled = controls.hideLabel.checked;
             saveSettings();

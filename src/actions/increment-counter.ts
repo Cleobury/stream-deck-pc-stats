@@ -24,6 +24,7 @@ const CARD_RADIUS = 18;
 export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	private readonly settingsByActionId = new Map<string, NormalizedDisplaySettings>();
 	private readonly historyByActionId = new Map<string, number[]>();
+	private readonly secondaryHistoryByActionId = new Map<string, number[]>();
 	private pollTimer: NodeJS.Timeout | undefined;
 	private sidecarBootPromise: Promise<void> | undefined;
 
@@ -44,6 +45,7 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	override onWillDisappear(ev: WillDisappearEvent<DisplaySettings>): void {
 		this.settingsByActionId.delete(ev.action.id);
 		this.historyByActionId.delete(ev.action.id);
+		this.secondaryHistoryByActionId.delete(ev.action.id);
 		if (this.settingsByActionId.size === 0 && this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
@@ -125,6 +127,21 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	}
 
 	private async renderMetricForAction(action: KeyAction<DisplaySettings>, settings: NormalizedDisplaySettings, metrics: Record<string, number | string | boolean | null>): Promise<void> {
+		if (settings.displayMode === "dual") {
+			const primaryMetricKey = settings.metricKey;
+			const secondaryMetricKey = settings.secondaryMetricKey;
+			const primaryRawValue = metrics[primaryMetricKey];
+			const secondaryRawValue = metrics[secondaryMetricKey];
+			const primaryValue = typeof primaryRawValue === "number" ? primaryRawValue : undefined;
+			const secondaryValue = typeof secondaryRawValue === "number" ? secondaryRawValue : undefined;
+			const histories = this.pushDualHistory(action.id, primaryValue, secondaryValue, settings.lineSamples);
+			const primaryMetric = metricLineFromPayload(metrics, primaryMetricKey, settings.label || shortMetricLabel(primaryMetricKey), settings.decimals, resolveDualAccent(settings, primaryMetricKey, "primary"));
+			const secondaryMetric = metricLineFromPayload(metrics, secondaryMetricKey, settings.secondaryLabel || shortMetricLabel(secondaryMetricKey), settings.decimals, resolveDualAccent(settings, secondaryMetricKey, "secondary"));
+			await action.setTitle("");
+			await action.setImage(renderDualMetricCard(settings, primaryMetric, secondaryMetric, histories.primary, histories.secondary, primaryValue, secondaryValue, primaryMetricKey, secondaryMetricKey));
+			return;
+		}
+
 		const label = settings.label || shortMetricLabel(settings.metricKey);
 		const rawValue = metrics[settings.metricKey];
 
@@ -150,6 +167,16 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 		const nextHistory = [...(this.historyByActionId.get(actionId) ?? []), value].slice(-maxSamples);
 		this.historyByActionId.set(actionId, nextHistory);
 		return nextHistory;
+	}
+
+	private pushDualHistory(actionId: string, primaryValue: number | undefined, secondaryValue: number | undefined, maxSamples: number): { primary: number[]; secondary: number[] } {
+		const currentPrimary = this.historyByActionId.get(actionId) ?? [];
+		const currentSecondary = this.secondaryHistoryByActionId.get(actionId) ?? [];
+		const nextPrimary = primaryValue === undefined ? currentPrimary.slice(-maxSamples) : [...currentPrimary, primaryValue].slice(-maxSamples);
+		const nextSecondary = secondaryValue === undefined ? currentSecondary.slice(-maxSamples) : [...currentSecondary, secondaryValue].slice(-maxSamples);
+		this.historyByActionId.set(actionId, nextPrimary);
+		this.secondaryHistoryByActionId.set(actionId, nextSecondary);
+		return { primary: nextPrimary, secondary: nextSecondary };
 	}
 
 	private async sendMetricsListToInspector(endpointUrl: string): Promise<void> {
@@ -213,8 +240,16 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 
 type DisplaySettings = {
 	endpointUrl?: string;
+	displayMode?: DisplayMode;
+	dualViewStyle?: DualViewStyle;
+	dualValueLayout?: DualValueLayout;
+	dualValueOpacity?: number;
 	metricKey?: string;
 	label?: string;
+	secondaryMetricKey?: string;
+	secondaryLabel?: string;
+	primaryAccentColor?: string;
+	secondaryAccentColor?: string;
 	hideLabel?: boolean;
 	labelX?: number;
 	labelY?: number;
@@ -248,6 +283,12 @@ type DisplaySettings = {
 
 type Theme = "default" | "neon" | "minimal" | "retro" | "custom";
 
+type DisplayMode = "single" | "dual";
+
+type DualViewStyle = "split" | "multi-line" | "multi-dot";
+
+type DualValueLayout = "top-bottom" | "left-right";
+
 type ViewStyle = "value" | "line" | "line-filled" | "gauge" | "dot-matrix";
 
 type SuffixMode = "off" | "inline" | "below";
@@ -274,8 +315,16 @@ type MetricsListToInspector = {
 
 const DEFAULT_SETTINGS: NormalizedDisplaySettings = {
 	endpointUrl: "http://localhost:9696/metrics",
+	displayMode: "single",
+	dualViewStyle: "split",
+	dualValueLayout: "top-bottom",
+	dualValueOpacity: 0.9,
 	metricKey: "gpu1_temperature",
 	label: "GPU1 Temp",
+	secondaryMetricKey: "cpu_usage",
+	secondaryLabel: "CPU Usage",
+	primaryAccentColor: "",
+	secondaryAccentColor: "",
 	hideLabel: false,
 	labelX: 72,
 	labelY: 34,
@@ -311,8 +360,16 @@ function normalizeSettings(input: DisplaySettings): NormalizedDisplaySettings {
 	const normalizedValueSize = clampInt(input.valueSize ?? input.fontSize, 24, 72, DEFAULT_SETTINGS.valueSize);
 	return {
 		endpointUrl: normalizeEndpointUrl(input.endpointUrl),
+		displayMode: normalizeDisplayMode(input.displayMode),
+		dualViewStyle: normalizeDualViewStyle(input.dualViewStyle),
+		dualValueLayout: normalizeDualValueLayout(input.dualValueLayout),
+		dualValueOpacity: clampNumber(input.dualValueOpacity, 0.2, 1, DEFAULT_SETTINGS.dualValueOpacity),
 		metricKey: input.metricKey?.trim() || DEFAULT_SETTINGS.metricKey,
 		label: input.label !== undefined ? input.label.trim() : DEFAULT_SETTINGS.label,
+		secondaryMetricKey: input.secondaryMetricKey?.trim() || DEFAULT_SETTINGS.secondaryMetricKey,
+		secondaryLabel: input.secondaryLabel !== undefined ? input.secondaryLabel.trim() : DEFAULT_SETTINGS.secondaryLabel,
+		primaryAccentColor: normalizeColor(input.primaryAccentColor, DEFAULT_SETTINGS.primaryAccentColor),
+		secondaryAccentColor: normalizeColor(input.secondaryAccentColor, DEFAULT_SETTINGS.secondaryAccentColor),
 		hideLabel: input.hideLabel === true,
 		labelX: clampInt(input.labelX, 8, 128, DEFAULT_SETTINGS.labelX),
 		labelY: clampInt(input.labelY, 12, 132, DEFAULT_SETTINGS.labelY),
@@ -343,6 +400,27 @@ function normalizeSettings(input: DisplaySettings): NormalizedDisplaySettings {
 		customAccentColor: normalizeColor(input.customAccentColor, DEFAULT_SETTINGS.customAccentColor),
 		customTrackColor: normalizeColor(input.customTrackColor, DEFAULT_SETTINGS.customTrackColor),
 	};
+}
+
+function normalizeDisplayMode(value: string | undefined): DisplayMode {
+	if (value === "dual") {
+		return value;
+	}
+	return "single";
+}
+
+function normalizeDualViewStyle(value: string | undefined): DualViewStyle {
+	if (value === "multi-line" || value === "multi-dot") {
+		return value;
+	}
+	return "split";
+}
+
+function normalizeDualValueLayout(value: string | undefined): DualValueLayout {
+	if (value === "left-right") {
+		return value;
+	}
+	return "top-bottom";
 }
 
 function normalizeTheme(value: string | undefined): Theme {
@@ -452,6 +530,17 @@ function themeAccentColor(settings: NormalizedDisplaySettings, metricKey: string
 	return accentColor(metricKey);
 }
 
+function resolveDualAccent(settings: NormalizedDisplaySettings, metricKey: string, slot: "primary" | "secondary"): string {
+	const explicitColor = slot === "primary" ? settings.primaryAccentColor : settings.secondaryAccentColor;
+	if (explicitColor) {
+		return explicitColor;
+	}
+	if (settings.theme === "custom") {
+		return settings.customAccentColor;
+	}
+	return accentColor(metricKey);
+}
+
 function normalizeViewStyle(value: string | undefined): ViewStyle {
 	if (value === "line" || value === "line-filled" || value === "gauge" || value === "dot-matrix") {
 		return value;
@@ -539,6 +628,316 @@ function formatMetricValue(value: number, decimals: number): string {
 	}
 	const formatted = value.toFixed(decimals);
 	return isReasonableFormattedValue(formatted) ? formatted : "0";
+}
+
+type MetricLine = {
+	label: string;
+	valueText: string;
+	unit: string;
+	accent: string;
+};
+
+function metricLineFromPayload(
+	metrics: Record<string, number | string | boolean | null>,
+	metricKey: string,
+	label: string,
+	decimals: number,
+	customAccentColor?: string,
+): MetricLine {
+	const rawValue = metrics[metricKey];
+	if (rawValue === undefined || rawValue === null) {
+		return { label, valueText: "N/A", unit: "", accent: "#f2c94c" };
+	}
+	if (typeof rawValue === "number") {
+		const valueText = formatMetricValue(rawValue, decimals);
+		const unit = inferUnit(metricKey).trim();
+		return {
+			label,
+			valueText,
+			unit,
+			accent: customAccentColor || accentColor(metricKey),
+		};
+	}
+	return {
+		label,
+		valueText: String(rawValue),
+		unit: "",
+		accent: customAccentColor || accentColor(metricKey),
+	};
+}
+
+function renderDualMetricCard(
+	settings: NormalizedDisplaySettings,
+	primary: MetricLine,
+	secondary: MetricLine,
+	primaryHistory: number[],
+	secondaryHistory: number[],
+	primaryValue: number | undefined,
+	secondaryValue: number | undefined,
+	primaryMetricKey: string,
+	secondaryMetricKey: string,
+): string {
+	if (settings.dualViewStyle === "multi-line") {
+		return renderDualLineCard(settings, primary, secondary, primaryHistory, secondaryHistory, primaryValue, secondaryValue);
+	}
+	if (settings.dualViewStyle === "multi-dot") {
+		return renderDualDotCard(settings, primary, secondary, primaryHistory, secondaryHistory, primaryValue, secondaryValue, primaryMetricKey, secondaryMetricKey);
+	}
+	return renderDualSplitCard(settings, primary, secondary);
+}
+
+function renderDualSplitCard(settings: NormalizedDisplaySettings, primary: MetricLine, secondary: MetricLine): string {
+	const palette = themeFor(settings);
+	const safeFont = escapeXml(palette.fontFamily);
+	const layout = dualValueLayout(settings);
+	const valueOpacity = clampNumber(settings.dualValueOpacity, 0.2, 1, 0.9).toFixed(2);
+	const primaryLabel = escapeXml(primary.label);
+	const primaryValue = escapeXml(dualInlineValue(settings.suffixMode, primary));
+	const secondaryLabel = escapeXml(secondary.label);
+	const secondaryValue = escapeXml(dualInlineValue(settings.suffixMode, secondary));
+	const primaryAccent = escapeXml(primary.accent);
+	const secondaryAccent = escapeXml(secondary.accent);
+	const primarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, primary));
+	const secondarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, secondary));
+	const suffixSize = Math.max(11, Math.round(settings.valueSize * 0.4));
+	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
+		? `<text x="${layout.primaryX}" y="${layout.primaryLabelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		: "";
+	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
+		? `<text x="${layout.secondaryX}" y="${layout.secondaryLabelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		: "";
+	const primaryValueEl = renderTextWithOutline(
+		layout.primaryX,
+		layout.primaryY,
+		"middle",
+		primaryAccent,
+		safeFont,
+		settings.valueSize,
+		"700",
+		primaryValue,
+		settings.valueStrokeColor,
+		settings.valueStrokeWidth,
+		` fill-opacity="${valueOpacity}"`,
+	);
+	const secondaryValueEl = renderTextWithOutline(
+		layout.secondaryX,
+		layout.secondaryY,
+		"middle",
+		secondaryAccent,
+		safeFont,
+		settings.valueSize,
+		"700",
+		secondaryValue,
+		settings.valueStrokeColor,
+		settings.valueStrokeWidth,
+		` fill-opacity="${valueOpacity}"`,
+	);
+	const primarySuffixEl = primarySuffixBelow
+		? renderTextWithOutline(layout.primaryX, Math.min(136, layout.primaryY + suffixSize), "middle", primaryAccent, safeFont, suffixSize, "600", primarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+	const secondarySuffixEl = secondarySuffixBelow
+		? renderTextWithOutline(layout.secondaryX, Math.min(136, layout.secondaryY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="14" y="16" width="116" height="112" rx="12" fill="#0000001a"/>${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+}
+
+function renderDualLineCard(
+	settings: NormalizedDisplaySettings,
+	primary: MetricLine,
+	secondary: MetricLine,
+	primaryHistory: number[],
+	secondaryHistory: number[],
+	primaryValue: number | undefined,
+	secondaryValue: number | undefined,
+): string {
+	const palette = themeFor(settings);
+	const safeFont = escapeXml(palette.fontFamily);
+	const layout = dualValueLayout(settings);
+	const valueOpacity = clampNumber(settings.dualValueOpacity, 0.2, 1, 0.9).toFixed(2);
+	const primaryLabel = escapeXml(primary.label);
+	const secondaryLabel = escapeXml(secondary.label);
+	const primaryValueText = escapeXml(dualInlineValue(settings.suffixMode, primary));
+	const secondaryValueText = escapeXml(dualInlineValue(settings.suffixMode, secondary));
+	const primaryAccent = escapeXml(primary.accent);
+	const secondaryAccent = escapeXml(secondary.accent);
+	const primarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, primary));
+	const secondarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, secondary));
+	const suffixSize = Math.max(10, Math.round(settings.valueSize * 0.36));
+	const chartLeft = 12;
+	const chartTop = 12;
+	const chartWidth = 120;
+	const chartHeight = 54;
+
+	const safePrimaryHistory = primaryHistory.length > 1 ? primaryHistory : primaryValue === undefined ? [] : [primaryValue, primaryValue];
+	const safeSecondaryHistory = secondaryHistory.length > 1 ? secondaryHistory : secondaryValue === undefined ? [] : [secondaryValue, secondaryValue];
+	const valuePool = [...safePrimaryHistory, ...safeSecondaryHistory];
+	const autoMin = valuePool.length > 0 ? Math.min(...valuePool) : 0;
+	const autoMax = valuePool.length > 0 ? Math.max(...valuePool) : 100;
+	const { min, max } = resolveScaleRange(settings, autoMin, autoMax);
+	const primaryPath = buildLinePath(safePrimaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight);
+	const secondaryPath = buildLinePath(safeSecondaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight);
+	const bottomLabelY = 130;
+	const labelLeftX = 14;
+	const labelRightX = 130;
+	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
+		? `<text x="${labelLeftX}" y="${bottomLabelY}" text-anchor="start" fill="${primaryAccent}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		: "";
+	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
+		? `<text x="${labelRightX}" y="${bottomLabelY}" text-anchor="end" fill="${secondaryAccent}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		: "";
+	const primaryValueEl = renderTextWithOutline(layout.primaryX, layout.primaryY, "middle", primaryAccent, safeFont, settings.valueSize, "700", primaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
+	const secondaryValueEl = renderTextWithOutline(layout.secondaryX, layout.secondaryY, "middle", secondaryAccent, safeFont, settings.valueSize, "700", secondaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
+	const primarySuffixEl = primarySuffixBelow
+		? renderTextWithOutline(layout.primaryX, Math.min(136, layout.primaryY + suffixSize), "middle", primaryAccent, safeFont, suffixSize, "600", primarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+	const secondarySuffixEl = secondarySuffixBelow
+		? renderTextWithOutline(layout.secondaryX, Math.min(136, layout.secondaryY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="12" y="12" width="120" height="54" rx="8" fill="#00000020"/>${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryAccent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryAccent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+}
+
+function renderDualDotCard(
+	settings: NormalizedDisplaySettings,
+	primary: MetricLine,
+	secondary: MetricLine,
+	primaryHistory: number[],
+	secondaryHistory: number[],
+	primaryValue: number | undefined,
+	secondaryValue: number | undefined,
+	primaryMetricKey: string,
+	secondaryMetricKey: string,
+): string {
+	const palette = themeFor(settings);
+	const safeFont = escapeXml(palette.fontFamily);
+	const valueOpacity = clampNumber(settings.dualValueOpacity, 0.2, 1, 0.9).toFixed(2);
+	const primaryLabel = escapeXml(primary.label);
+	const secondaryLabel = escapeXml(secondary.label);
+	const primaryValueText = escapeXml(dualInlineValue(settings.suffixMode, primary));
+	const secondaryValueText = escapeXml(dualInlineValue(settings.suffixMode, secondary));
+	const primaryAccent = escapeXml(primary.accent);
+	const secondaryAccent = escapeXml(secondary.accent);
+	const primarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, primary));
+	const secondarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, secondary));
+	const suffixSize = Math.max(10, Math.round(settings.valueSize * 0.34));
+	const primaryProgress = computeDualProgress(settings, primaryMetricKey, primaryHistory, primaryValue);
+	const secondaryProgress = computeDualProgress(settings, secondaryMetricKey, secondaryHistory, secondaryValue);
+	const matrixTop = 12;
+	const matrixHeight = 124;
+	const matrixWidth = 64;
+	const leftMatrixX = 8;
+	const rightMatrixX = leftMatrixX + matrixWidth;
+	const dotRadius = 2.5;
+	const dotStep = dotRadius * 2;
+	const cols = 12;
+	const rows = 24;
+	const leftGrid = renderDualDotGrid(leftMatrixX + 4.5, matrixTop + 4.5, cols, rows, dotStep, dotStep, primaryProgress, primaryAccent, palette.trackColor);
+	const rightGrid = renderDualDotGrid(rightMatrixX + 4.5, matrixTop + 4.5, cols, rows, dotStep, dotStep, secondaryProgress, secondaryAccent, palette.trackColor);
+	const leftCenterX = leftMatrixX + matrixWidth / 2;
+	const rightCenterX = rightMatrixX + matrixWidth / 2;
+	const centerY = matrixTop + matrixHeight / 2 + Math.round(settings.valueSize * 0.15);
+	const labelY = matrixTop + Math.max(10, settings.labelSize);
+	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
+		? `<text x="${leftCenterX}" y="${labelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		: "";
+	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
+		? `<text x="${rightCenterX}" y="${labelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		: "";
+	const valueSize = Math.min(settings.valueSize, 36);
+	const primaryValueEl = renderTextWithOutline(leftCenterX, centerY, "middle", primaryAccent, safeFont, valueSize, "700", primaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
+	const secondaryValueEl = renderTextWithOutline(rightCenterX, centerY, "middle", secondaryAccent, safeFont, valueSize, "700", secondaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
+	const primarySuffixEl = primarySuffixBelow
+		? renderTextWithOutline(leftCenterX, Math.min(136, centerY + suffixSize), "middle", primaryAccent, safeFont, suffixSize, "600", primarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+	const secondarySuffixEl = secondarySuffixBelow
+		? renderTextWithOutline(rightCenterX, Math.min(136, centerY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
+		: "";
+
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><line x1="72" y1="10" x2="72" y2="134" stroke="${palette.borderColor}" stroke-opacity="0.65"/>${leftGrid}${rightGrid}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+}
+
+function dualInlineValue(mode: SuffixMode, metric: MetricLine): string {
+	if (mode === "off" || !metric.unit) {
+		return metric.valueText;
+	}
+	if (mode === "inline") {
+		return `${metric.valueText} ${metric.unit}`;
+	}
+	return metric.valueText;
+}
+
+function dualSuffixBelow(mode: SuffixMode, metric: MetricLine): string {
+	if (mode !== "below" || !metric.unit) {
+		return "";
+	}
+	return metric.unit;
+}
+
+function dualValueLayout(settings: NormalizedDisplaySettings): { primaryX: number; secondaryX: number; primaryY: number; secondaryY: number; primaryLabelY: number; secondaryLabelY: number } {
+	const x = settings.valueX;
+	if (settings.dualValueLayout === "left-right") {
+		const horizontalGap = Math.max(22, Math.round(settings.valueSize * 1.3));
+		const primaryX = clampNumber(x - horizontalGap / 2, 18, 126, x - horizontalGap / 2);
+		const secondaryX = clampNumber(x + horizontalGap / 2, 18, 126, x + horizontalGap / 2);
+		const y = clampNumber(settings.valueY, 30, 128, settings.valueY);
+		const labelY = clampNumber(y - Math.max(14, Math.round(settings.valueSize * 0.7)), 12, 118, y - 20);
+		return { primaryX, secondaryX, primaryY: y, secondaryY: y, primaryLabelY: labelY, secondaryLabelY: labelY };
+	}
+	const gap = Math.max(18, Math.round(settings.valueSize * 0.95));
+	const primaryY = clampNumber(settings.valueY - gap / 2, 24, 120, settings.valueY - gap / 2);
+	const secondaryY = clampNumber(settings.valueY + gap / 2, 36, 136, settings.valueY + gap / 2);
+	const labelOffset = Math.max(14, Math.round(settings.valueSize * 0.7));
+	const primaryLabelY = clampNumber(primaryY - labelOffset, 12, 118, primaryY - labelOffset);
+	const secondaryLabelY = clampNumber(secondaryY - labelOffset, 16, 132, secondaryY - labelOffset);
+	return { primaryX: x, secondaryX: x, primaryY, secondaryY, primaryLabelY, secondaryLabelY };
+}
+
+function buildLinePath(values: number[], min: number, max: number, left: number, top: number, width: number, height: number): string {
+	if (values.length < 2) {
+		return "";
+	}
+	const span = Math.max(1, max - min);
+	return values.map((point, index) => {
+		const x = left + (index / Math.max(1, values.length - 1)) * width;
+		const normalized = Math.max(0, Math.min(1, (point - min) / span));
+		const y = top + height - normalized * height;
+		return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+	}).join(" ");
+}
+
+function computeDualProgress(settings: NormalizedDisplaySettings, metricKey: string, history: number[], value: number | undefined): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	const inferredRange = inferGaugeRange(metricKey, history, value);
+	const { min, max } = resolveScaleRange(settings, inferredRange.min, inferredRange.max);
+	return Math.max(0, Math.min(1, (value - min) / Math.max(1, max - min)));
+}
+
+function renderDualDotGrid(
+	startX: number,
+	startY: number,
+	cols: number,
+	rows: number,
+	xStep: number,
+	yStep: number,
+	progress: number | undefined,
+	accent: string,
+	track: string,
+): string {
+	const total = cols * rows;
+	const fillCount = progress === undefined ? 0 : Math.round(progress * total);
+	return Array.from({ length: total }, (_, index) => {
+		const col = index % cols;
+		const rowFromBottom = Math.floor(index / cols);
+		const row = rows - 1 - rowFromBottom;
+		const x = startX + col * xStep;
+		const y = startY + row * yStep;
+		const filled = index < fillCount;
+		const fill = filled ? accent : track;
+		const opacity = filled ? 0.95 : 0.4;
+		return `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="2.5" fill="${fill}" fill-opacity="${opacity}"/>`;
+	}).join("");
 }
 
 function isReasonableFormattedValue(valueText: string): boolean {
