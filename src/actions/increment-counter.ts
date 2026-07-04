@@ -244,12 +244,18 @@ type DisplaySettings = {
 	dualViewStyle?: DualViewStyle;
 	dualValueLayout?: DualValueLayout;
 	dualValueOpacity?: number;
+	dualPrimaryLabelX?: number;
+	dualPrimaryLabelY?: number;
+	dualSecondaryLabelX?: number;
+	dualSecondaryLabelY?: number;
 	metricKey?: string;
 	label?: string;
 	secondaryMetricKey?: string;
 	secondaryLabel?: string;
 	primaryAccentColor?: string;
 	secondaryAccentColor?: string;
+	primaryLabelColor?: string;
+	secondaryLabelColor?: string;
 	hideLabel?: boolean;
 	labelX?: number;
 	labelY?: number;
@@ -268,6 +274,10 @@ type DisplaySettings = {
 	decimals?: number;
 	refreshMs?: number;
 	viewStyle?: ViewStyle;
+	lineThickness?: number;
+	gradientLevel?: number;
+	graphBaselineOffset?: number;
+	lineFillStrength?: number;
 	fontSize?: number;
 	fontFamily?: string;
 	lineSamples?: number;
@@ -319,12 +329,18 @@ const DEFAULT_SETTINGS: NormalizedDisplaySettings = {
 	dualViewStyle: "split",
 	dualValueLayout: "top-bottom",
 	dualValueOpacity: 0.9,
+	dualPrimaryLabelX: 72,
+	dualPrimaryLabelY: 30,
+	dualSecondaryLabelX: 72,
+	dualSecondaryLabelY: 74,
 	metricKey: "gpu1_temperature",
 	label: "GPU1 Temp",
 	secondaryMetricKey: "cpu_usage",
 	secondaryLabel: "CPU Usage",
 	primaryAccentColor: "",
 	secondaryAccentColor: "",
+	primaryLabelColor: "#cbd5e1",
+	secondaryLabelColor: "#cbd5e1",
 	hideLabel: false,
 	labelX: 72,
 	labelY: 34,
@@ -343,6 +359,10 @@ const DEFAULT_SETTINGS: NormalizedDisplaySettings = {
 	decimals: 0,
 	refreshMs: 1000,
 	viewStyle: "value",
+	lineThickness: 3,
+	gradientLevel: 1,
+	graphBaselineOffset: 0,
+	lineFillStrength: 0.65,
 	fontSize: 48,
 	fontFamily: "Segoe UI",
 	lineSamples: 30,
@@ -364,12 +384,18 @@ function normalizeSettings(input: DisplaySettings): NormalizedDisplaySettings {
 		dualViewStyle: normalizeDualViewStyle(input.dualViewStyle),
 		dualValueLayout: normalizeDualValueLayout(input.dualValueLayout),
 		dualValueOpacity: clampNumber(input.dualValueOpacity, 0.2, 1, DEFAULT_SETTINGS.dualValueOpacity),
+		dualPrimaryLabelX: clampInt(input.dualPrimaryLabelX, 8, 128, DEFAULT_SETTINGS.dualPrimaryLabelX),
+		dualPrimaryLabelY: clampInt(input.dualPrimaryLabelY, 12, 132, DEFAULT_SETTINGS.dualPrimaryLabelY),
+		dualSecondaryLabelX: clampInt(input.dualSecondaryLabelX, 8, 128, DEFAULT_SETTINGS.dualSecondaryLabelX),
+		dualSecondaryLabelY: clampInt(input.dualSecondaryLabelY, 12, 132, DEFAULT_SETTINGS.dualSecondaryLabelY),
 		metricKey: input.metricKey?.trim() || DEFAULT_SETTINGS.metricKey,
 		label: input.label !== undefined ? input.label.trim() : DEFAULT_SETTINGS.label,
 		secondaryMetricKey: input.secondaryMetricKey?.trim() || DEFAULT_SETTINGS.secondaryMetricKey,
 		secondaryLabel: input.secondaryLabel !== undefined ? input.secondaryLabel.trim() : DEFAULT_SETTINGS.secondaryLabel,
 		primaryAccentColor: normalizeColor(input.primaryAccentColor, DEFAULT_SETTINGS.primaryAccentColor),
 		secondaryAccentColor: normalizeColor(input.secondaryAccentColor, DEFAULT_SETTINGS.secondaryAccentColor),
+		primaryLabelColor: normalizeColor(input.primaryLabelColor, DEFAULT_SETTINGS.primaryLabelColor),
+		secondaryLabelColor: normalizeColor(input.secondaryLabelColor, DEFAULT_SETTINGS.secondaryLabelColor),
 		hideLabel: input.hideLabel === true,
 		labelX: clampInt(input.labelX, 8, 128, DEFAULT_SETTINGS.labelX),
 		labelY: clampInt(input.labelY, 12, 132, DEFAULT_SETTINGS.labelY),
@@ -388,6 +414,10 @@ function normalizeSettings(input: DisplaySettings): NormalizedDisplaySettings {
 		decimals: clampInt(input.decimals, 0, 3, DEFAULT_SETTINGS.decimals),
 		refreshMs: clampInt(input.refreshMs, 500, 5000, DEFAULT_SETTINGS.refreshMs),
 		viewStyle: normalizeViewStyle(input.viewStyle),
+		lineThickness: clampNumber(input.lineThickness, 1, 8, DEFAULT_SETTINGS.lineThickness),
+		gradientLevel: clampNumber(input.gradientLevel, 0, 1, DEFAULT_SETTINGS.gradientLevel),
+		graphBaselineOffset: clampNumber(input.graphBaselineOffset, 0, 40, DEFAULT_SETTINGS.graphBaselineOffset),
+		lineFillStrength: clampNumber(input.lineFillStrength, 0.1, 1, DEFAULT_SETTINGS.lineFillStrength),
 		fontSize: normalizedValueSize,
 		fontFamily: input.fontFamily?.trim() || DEFAULT_SETTINGS.fontFamily,
 		lineSamples: clampInt(input.lineSamples, 10, 60, DEFAULT_SETTINGS.lineSamples),
@@ -691,6 +721,10 @@ function renderDualSplitCard(settings: NormalizedDisplaySettings, primary: Metri
 	const safeFont = escapeXml(palette.fontFamily);
 	const layout = dualValueLayout(settings);
 	const valueOpacity = clampNumber(settings.dualValueOpacity, 0.2, 1, 0.9).toFixed(2);
+	const primaryLabelX = clampNumber(settings.dualPrimaryLabelX, 8, 128, layout.primaryX);
+	const primaryLabelY = clampNumber(settings.dualPrimaryLabelY, 12, 132, layout.primaryLabelY);
+	const secondaryLabelX = clampNumber(settings.dualSecondaryLabelX, 8, 128, layout.secondaryX);
+	const secondaryLabelY = clampNumber(settings.dualSecondaryLabelY, 12, 132, layout.secondaryLabelY);
 	const primaryLabel = escapeXml(primary.label);
 	const primaryValue = escapeXml(dualInlineValue(settings.suffixMode, primary));
 	const secondaryLabel = escapeXml(secondary.label);
@@ -700,11 +734,13 @@ function renderDualSplitCard(settings: NormalizedDisplaySettings, primary: Metri
 	const primarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, primary));
 	const secondarySuffixBelow = escapeXml(dualSuffixBelow(settings.suffixMode, secondary));
 	const suffixSize = Math.max(11, Math.round(settings.valueSize * 0.4));
+	const primaryLabelColor = escapeXml(resolveDualLabelColor(settings, "primary", palette.labelColor));
+	const secondaryLabelColor = escapeXml(resolveDualLabelColor(settings, "secondary", palette.labelColor));
 	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
-		? `<text x="${layout.primaryX}" y="${layout.primaryLabelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		? `<text x="${primaryLabelX}" y="${primaryLabelY}" text-anchor="middle" fill="${primaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
 		: "";
 	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
-		? `<text x="${layout.secondaryX}" y="${layout.secondaryLabelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		? `<text x="${secondaryLabelX}" y="${secondaryLabelY}" text-anchor="middle" fill="${secondaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
 		: "";
 	const primaryValueEl = renderTextWithOutline(
 		layout.primaryX,
@@ -738,7 +774,7 @@ function renderDualSplitCard(settings: NormalizedDisplaySettings, primary: Metri
 	const secondarySuffixEl = secondarySuffixBelow
 		? renderTextWithOutline(layout.secondaryX, Math.min(136, layout.secondaryY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
 		: "";
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="14" y="16" width="116" height="112" rx="12" fill="#0000001a"/>${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="14" y="16" width="116" height="112" rx="12" fill="#0000001a"/>${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
 }
 
 function renderDualLineCard(
@@ -767,6 +803,7 @@ function renderDualLineCard(
 	const chartTop = 12;
 	const chartWidth = 120;
 	const chartHeight = 54;
+	const lineThickness = clampNumber(settings.lineThickness, 1, 8, 3);
 
 	const safePrimaryHistory = primaryHistory.length > 1 ? primaryHistory : primaryValue === undefined ? [] : [primaryValue, primaryValue];
 	const safeSecondaryHistory = secondaryHistory.length > 1 ? secondaryHistory : secondaryValue === undefined ? [] : [secondaryValue, secondaryValue];
@@ -774,16 +811,18 @@ function renderDualLineCard(
 	const autoMin = valuePool.length > 0 ? Math.min(...valuePool) : 0;
 	const autoMax = valuePool.length > 0 ? Math.max(...valuePool) : 100;
 	const { min, max } = resolveScaleRange(settings, autoMin, autoMax);
-	const primaryPath = buildLinePath(safePrimaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight);
-	const secondaryPath = buildLinePath(safeSecondaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight);
+	const primaryPath = buildLinePath(safePrimaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight, settings.graphBaselineOffset);
+	const secondaryPath = buildLinePath(safeSecondaryHistory, min, max, chartLeft, chartTop, chartWidth, chartHeight, settings.graphBaselineOffset);
 	const bottomLabelY = 130;
 	const labelLeftX = 14;
 	const labelRightX = 130;
+	const primaryLabelColor = escapeXml(resolveDualLabelColor(settings, "primary", primary.accent));
+	const secondaryLabelColor = escapeXml(resolveDualLabelColor(settings, "secondary", secondary.accent));
 	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
-		? `<text x="${labelLeftX}" y="${bottomLabelY}" text-anchor="start" fill="${primaryAccent}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		? `<text x="${labelLeftX}" y="${bottomLabelY}" text-anchor="start" fill="${primaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
 		: "";
 	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
-		? `<text x="${labelRightX}" y="${bottomLabelY}" text-anchor="end" fill="${secondaryAccent}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		? `<text x="${labelRightX}" y="${bottomLabelY}" text-anchor="end" fill="${secondaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
 		: "";
 	const primaryValueEl = renderTextWithOutline(layout.primaryX, layout.primaryY, "middle", primaryAccent, safeFont, settings.valueSize, "700", primaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
 	const secondaryValueEl = renderTextWithOutline(layout.secondaryX, layout.secondaryY, "middle", secondaryAccent, safeFont, settings.valueSize, "700", secondaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
@@ -794,7 +833,7 @@ function renderDualLineCard(
 		? renderTextWithOutline(layout.secondaryX, Math.min(136, layout.secondaryY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
 		: "";
 
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="12" y="12" width="120" height="54" rx="8" fill="#00000020"/>${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryAccent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryAccent}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><rect x="12" y="12" width="120" height="54" rx="8" fill="#00000020"/>${primaryPath ? `<path d="${primaryPath}" fill="none" stroke="${primaryAccent}" stroke-width="${lineThickness}" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${secondaryPath ? `<path d="${secondaryPath}" fill="none" stroke="${secondaryAccent}" stroke-width="${lineThickness}" stroke-linecap="round" stroke-linejoin="round"/>` : ""}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
 }
 
 function renderDualDotCard(
@@ -837,11 +876,13 @@ function renderDualDotCard(
 	const rightCenterX = rightMatrixX + matrixWidth / 2;
 	const centerY = matrixTop + matrixHeight / 2 + Math.round(settings.valueSize * 0.15);
 	const labelY = matrixTop + Math.max(10, settings.labelSize);
+	const primaryLabelColor = escapeXml(resolveDualLabelColor(settings, "primary", palette.labelColor));
+	const secondaryLabelColor = escapeXml(resolveDualLabelColor(settings, "secondary", palette.labelColor));
 	const labelPrimaryEl = (!settings.hideLabel && primaryLabel)
-		? `<text x="${leftCenterX}" y="${labelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
+		? `<text x="${leftCenterX}" y="${labelY}" text-anchor="middle" fill="${primaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${primaryLabel}</text>`
 		: "";
 	const labelSecondaryEl = (!settings.hideLabel && secondaryLabel)
-		? `<text x="${rightCenterX}" y="${labelY}" text-anchor="middle" fill="${palette.labelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
+		? `<text x="${rightCenterX}" y="${labelY}" text-anchor="middle" fill="${secondaryLabelColor}" font-family="${safeFont}" font-size="${Math.max(10, settings.labelSize - 1)}" font-weight="600">${secondaryLabel}</text>`
 		: "";
 	const valueSize = Math.min(settings.valueSize, 36);
 	const primaryValueEl = renderTextWithOutline(leftCenterX, centerY, "middle", primaryAccent, safeFont, valueSize, "700", primaryValueText, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`);
@@ -853,7 +894,7 @@ function renderDualDotCard(
 		? renderTextWithOutline(rightCenterX, Math.min(136, centerY + suffixSize), "middle", secondaryAccent, safeFont, suffixSize, "600", secondarySuffixBelow, settings.valueStrokeColor, settings.valueStrokeWidth, ` fill-opacity="${valueOpacity}"`)
 		: "";
 
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><line x1="72" y1="10" x2="72" y2="134" stroke="${palette.borderColor}" stroke-opacity="0.65"/>${leftGrid}${rightGrid}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><line x1="72" y1="10" x2="72" y2="134" stroke="${palette.borderColor}" stroke-opacity="0.65"/>${leftGrid}${rightGrid}${labelPrimaryEl}${labelSecondaryEl}${primaryValueEl}${secondaryValueEl}${primarySuffixEl}${secondarySuffixEl}</svg>`);
 }
 
 function dualInlineValue(mode: SuffixMode, metric: MetricLine): string {
@@ -892,15 +933,17 @@ function dualValueLayout(settings: NormalizedDisplaySettings): { primaryX: numbe
 	return { primaryX: x, secondaryX: x, primaryY, secondaryY, primaryLabelY, secondaryLabelY };
 }
 
-function buildLinePath(values: number[], min: number, max: number, left: number, top: number, width: number, height: number): string {
+function buildLinePath(values: number[], min: number, max: number, left: number, top: number, width: number, height: number, baselineOffset = 0): string {
 	if (values.length < 2) {
 		return "";
 	}
 	const span = Math.max(1, max - min);
+	const clampedBaselineOffset = Math.max(0, Math.min(height - 2, baselineOffset));
+	const chartBottom = top + height;
 	return values.map((point, index) => {
 		const x = left + (index / Math.max(1, values.length - 1)) * width;
 		const normalized = Math.max(0, Math.min(1, (point - min) / span));
-		const y = top + height - normalized * height;
+		const y = Math.max(top, chartBottom - normalized * height - clampedBaselineOffset);
 		return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
 	}).join(" ");
 }
@@ -1006,7 +1049,7 @@ function renderValueCard(settings: NormalizedDisplaySettings, metricKey: string,
 		settings.valueStrokeWidth,
 		glowAttr,
 	);
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient>${neonGlow}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${labelEl}${valueEl}${belowSuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}${neonGlow}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${labelEl}${valueEl}${belowSuffixEl}</svg>`);
 }
 
 function renderLineChartCard(settings: NormalizedDisplaySettings, metricKey: string, label: string, value: number, history: number[], filled: boolean): string {
@@ -1038,19 +1081,25 @@ function renderLineChartCard(settings: NormalizedDisplaySettings, metricKey: str
 	const chartTop = 16;
 	const chartWidth = 120;
 	const chartHeight = 112;
+	const lineThickness = clampNumber(settings.lineThickness, 1, 8, 3);
+	const baselineOffset = clampNumber(settings.graphBaselineOffset, 0, 40, 0);
+	const lineFillStrength = clampNumber(settings.lineFillStrength, 0.1, 1, 0.65);
 	const values = history.length > 1 ? history : [value, value];
 	const autoMin = Math.min(...values);
 	const autoMax = Math.max(...values);
 	const { min, max } = resolveScaleRange(settings, autoMin, autoMax);
 	const span = Math.max(1, max - min);
+	const clampedBaselineOffset = Math.max(0, Math.min(chartHeight - 2, baselineOffset));
+	const chartBottom = chartTop + chartHeight;
 	const points = values.map((point, index) => {
 		const x = chartLeft + (index / Math.max(1, values.length - 1)) * chartWidth;
 		const normalized = Math.max(0, Math.min(1, (point - min) / span));
-		const y = chartTop + chartHeight - normalized * chartHeight;
+		const y = Math.max(chartTop, chartBottom - normalized * chartHeight - clampedBaselineOffset);
 		return { x, y };
 	});
 	const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-	const areaPath = `M${points[0].x.toFixed(2)},${(chartTop + chartHeight).toFixed(2)} ${linePath.replaceAll("M", "L")} L${points[points.length - 1].x.toFixed(2)},${(chartTop + chartHeight).toFixed(2)} Z`;
+	const areaPath = `M${points[0].x.toFixed(2)},${chartBottom.toFixed(2)} ${linePath.replaceAll("M", "L")} L${points[points.length - 1].x.toFixed(2)},${chartBottom.toFixed(2)} Z`;
+	const fillBottomOpacity = Math.max(0, Math.min(1, lineFillStrength * 0.1));
 	const valueEl = renderTextWithOutline(
 		settings.valueX,
 		settings.valueY,
@@ -1063,7 +1112,15 @@ function renderLineChartCard(settings: NormalizedDisplaySettings, metricKey: str
 		settings.valueStrokeColor,
 		settings.valueStrokeWidth,
 	);
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${accent}" stop-opacity="0.45"/><stop offset="100%" stop-color="${accent}" stop-opacity="0.02"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${filled ? `<path d="${areaPath}" fill="url(#fill)"/>` : ""}<path d="${linePath}" fill="none" stroke="${accent}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${lineLabelEl}${valueEl}${belowSuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}<linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${accent}" stop-opacity="${lineFillStrength.toFixed(2)}"/><stop offset="100%" stop-color="${accent}" stop-opacity="${fillBottomOpacity.toFixed(2)}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${filled ? `<path d="${areaPath}" fill="url(#fill)"/>` : ""}<path d="${linePath}" fill="none" stroke="${accent}" stroke-width="${lineThickness}" stroke-linecap="round" stroke-linejoin="round"/>${lineLabelEl}${valueEl}${belowSuffixEl}</svg>`);
+}
+
+function resolveDualLabelColor(settings: NormalizedDisplaySettings, slot: "primary" | "secondary", fallback: string): string {
+	const explicit = slot === "primary" ? settings.primaryLabelColor : settings.secondaryLabelColor;
+	if (explicit) {
+		return explicit;
+	}
+	return fallback;
 }
 
 function renderGaugeCard(settings: NormalizedDisplaySettings, metricKey: string, label: string, value: number, history: number[]): string {
@@ -1115,7 +1172,7 @@ function renderGaugeCard(settings: NormalizedDisplaySettings, metricKey: string,
 		settings.valueStrokeWidth,
 	);
 	const trackWidth = 16;
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><path d="${trackPath}" fill="none" stroke="${palette.trackColor}" stroke-width="${trackWidth}" stroke-linecap="round"/><path d="${valuePath}" fill="none" stroke="${accent}" stroke-width="${trackWidth}" stroke-linecap="round"/>${gaugeLabelEl}${valueEl}${belowSuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/><path d="${trackPath}" fill="none" stroke="${palette.trackColor}" stroke-width="${trackWidth}" stroke-linecap="round"/><path d="${valuePath}" fill="none" stroke="${accent}" stroke-width="${trackWidth}" stroke-linecap="round"/>${gaugeLabelEl}${valueEl}${belowSuffixEl}</svg>`);
 }
 
 function renderDotMatrixCard(settings: NormalizedDisplaySettings, metricKey: string, label: string, value: number, history: number[]): string {
@@ -1183,7 +1240,51 @@ function renderDotMatrixCard(settings: NormalizedDisplaySettings, metricKey: str
 	const unitY = Math.min(136, settings.valueY + 20);
 	const belowSuffixEl = suffixBelowElement(settings.suffixMode, safeUnit, settings.valueX, unitY, accent, safeFont, 14);
 
-	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${palette.bg1}"/></linearGradient></defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${dotElements}${labelEl}${valueEl}${belowSuffixEl}</svg>`);
+	return svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_SIZE}" height="${SVG_SIZE}" viewBox="0 0 ${SVG_SIZE} ${SVG_SIZE}"><defs>${backgroundGradientDef(settings, palette)}</defs><rect x="2" y="2" width="140" height="140" rx="${CARD_RADIUS}" fill="url(#bg)"/><rect x="8" y="8" width="128" height="128" rx="${CARD_RADIUS - 4}" fill="none" stroke="${palette.borderColor}"/>${dotElements}${labelEl}${valueEl}${belowSuffixEl}</svg>`);
+}
+
+function backgroundGradientDef(settings: NormalizedDisplaySettings, palette: ThemePalette): string {
+	const bottomColor = gradientBottomColor(settings, palette);
+	return `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${palette.bg0}"/><stop offset="100%" stop-color="${bottomColor}"/></linearGradient>`;
+}
+
+function gradientBottomColor(settings: NormalizedDisplaySettings, palette: ThemePalette): string {
+	const level = clampNumber(settings.gradientLevel, 0, 1, 1);
+	if (level <= 0) {
+		return palette.bg0;
+	}
+	if (level >= 1) {
+		return palette.bg1;
+	}
+	return blendHexColors(palette.bg0, palette.bg1, level);
+}
+
+function blendHexColors(start: string, end: string, ratio: number): string {
+	const startRgb = parseHexRgb(start);
+	const endRgb = parseHexRgb(end);
+	if (!startRgb || !endRgb) {
+		return end;
+	}
+	const mix = (left: number, right: number): number => Math.round(left + (right - left) * ratio);
+	return `#${toHex2(mix(startRgb.r, endRgb.r))}${toHex2(mix(startRgb.g, endRgb.g))}${toHex2(mix(startRgb.b, endRgb.b))}`;
+}
+
+function parseHexRgb(color: string): { r: number; g: number; b: number } | undefined {
+	const normalized = color.trim().toLowerCase();
+	const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/.exec(normalized);
+	if (!match) {
+		return undefined;
+	}
+	const hex = match[1];
+	return {
+		r: Number.parseInt(hex.slice(0, 2), 16),
+		g: Number.parseInt(hex.slice(2, 4), 16),
+		b: Number.parseInt(hex.slice(4, 6), 16),
+	};
+}
+
+function toHex2(value: number): string {
+	return Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0");
 }
 
 function suffixTextWithMode(mode: SuffixMode, safeValue: string, safeUnit: string, accent: string, valueSize: number): string {
