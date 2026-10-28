@@ -16,9 +16,12 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isNetworkMetricKey, NETWORK_DOWNLOAD_KEY, NETWORK_UPLOAD_KEY, sampleNetworkMetrics } from "../network-stats";
+
 const SIDECAR_EXE_NAME = "AfterburnerReader.exe";
 const SVG_SIZE = 144;
 const CARD_RADIUS = 18;
+const MAX_REASONABLE_METRIC_ABS = 1_000_000_000;
 
 @action({ UUID: "com.lee-cleobury.afterburner-display.increment" })
 export class IncrementCounter extends SingletonAction<DisplaySettings> {
@@ -116,8 +119,14 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 				}));
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "No data";
+				// Network speeds come from the OS, so tiles showing only those keep working when the sidecar is down.
+				const networkMetrics = await sampleNetworkMetrics();
 				await Promise.all(endpointActions.map(async (action) => {
 					const settings = this.settingsByActionId.get(action.id) ?? normalizeSettings({ endpointUrl });
+					if (usesOnlyNetworkMetrics(settings) && Object.keys(networkMetrics).length > 0) {
+						await this.renderMetricForAction(action, settings, networkMetrics);
+						return;
+					}
 					const label = settings.label || shortMetricLabel(settings.metricKey);
 					await action.setTitle("");
 					await action.setImage(renderStatusCard(label, "ERR", "#ff6b6b", message));
@@ -132,8 +141,8 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 			const secondaryMetricKey = settings.secondaryMetricKey;
 			const primaryRawValue = metrics[primaryMetricKey];
 			const secondaryRawValue = metrics[secondaryMetricKey];
-			const primaryValue = typeof primaryRawValue === "number" ? primaryRawValue : undefined;
-			const secondaryValue = typeof secondaryRawValue === "number" ? secondaryRawValue : undefined;
+			const primaryValue = typeof primaryRawValue === "number" ? sanitizeMetricNumber(primaryRawValue) : undefined;
+			const secondaryValue = typeof secondaryRawValue === "number" ? sanitizeMetricNumber(secondaryRawValue) : undefined;
 			const histories = this.pushDualHistory(action.id, primaryValue, secondaryValue, settings.lineSamples);
 			const primaryMetric = metricLineFromPayload(metrics, primaryMetricKey, settings.label || shortMetricLabel(primaryMetricKey), settings.decimals, resolveDualAccent(settings, primaryMetricKey, "primary"));
 			const secondaryMetric = metricLineFromPayload(metrics, secondaryMetricKey, settings.secondaryLabel || shortMetricLabel(secondaryMetricKey), settings.decimals, resolveDualAccent(settings, secondaryMetricKey, "secondary"));
@@ -157,23 +166,28 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 			return;
 		}
 
-		const history = this.pushHistory(action.id, rawValue, settings.lineSamples);
-		const image = renderMetricCard(settings, settings.metricKey, label, rawValue, history);
+		const numericValue = sanitizeMetricNumber(rawValue);
+		const history = this.pushHistory(action.id, numericValue, settings.lineSamples);
+		const image = renderMetricCard(settings, settings.metricKey, label, numericValue, history);
 		await action.setTitle("");
 		await action.setImage(image);
 	}
 
 	private pushHistory(actionId: string, value: number, maxSamples: number): number[] {
-		const nextHistory = [...(this.historyByActionId.get(actionId) ?? []), value].slice(-maxSamples);
+		const safeCurrentHistory = sanitizeSeries(this.historyByActionId.get(actionId) ?? []);
+		const safeValue = sanitizeMetricNumber(value);
+		const nextHistory = [...safeCurrentHistory, safeValue].slice(-maxSamples);
 		this.historyByActionId.set(actionId, nextHistory);
 		return nextHistory;
 	}
 
 	private pushDualHistory(actionId: string, primaryValue: number | undefined, secondaryValue: number | undefined, maxSamples: number): { primary: number[]; secondary: number[] } {
-		const currentPrimary = this.historyByActionId.get(actionId) ?? [];
-		const currentSecondary = this.secondaryHistoryByActionId.get(actionId) ?? [];
-		const nextPrimary = primaryValue === undefined ? currentPrimary.slice(-maxSamples) : [...currentPrimary, primaryValue].slice(-maxSamples);
-		const nextSecondary = secondaryValue === undefined ? currentSecondary.slice(-maxSamples) : [...currentSecondary, secondaryValue].slice(-maxSamples);
+		const currentPrimary = sanitizeSeries(this.historyByActionId.get(actionId) ?? []);
+		const currentSecondary = sanitizeSeries(this.secondaryHistoryByActionId.get(actionId) ?? []);
+		const safePrimary = primaryValue === undefined ? undefined : sanitizeMetricNumber(primaryValue);
+		const safeSecondary = secondaryValue === undefined ? undefined : sanitizeMetricNumber(secondaryValue);
+		const nextPrimary = safePrimary === undefined ? currentPrimary.slice(-maxSamples) : [...currentPrimary, safePrimary].slice(-maxSamples);
+		const nextSecondary = safeSecondary === undefined ? currentSecondary.slice(-maxSamples) : [...currentSecondary, safeSecondary].slice(-maxSamples);
 		this.historyByActionId.set(actionId, nextPrimary);
 		this.secondaryHistoryByActionId.set(actionId, nextSecondary);
 		return { primary: nextPrimary, secondary: nextSecondary };
@@ -191,6 +205,11 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	}
 
 	private async fetchMetricsWithBootstrap(endpointUrl: string): Promise<Record<string, number | string | boolean | null>> {
+		const [sidecarMetrics, networkMetrics] = await Promise.all([this.fetchSidecarMetricsWithBootstrap(endpointUrl), sampleNetworkMetrics()]);
+		return { ...sidecarMetrics, ...networkMetrics };
+	}
+
+	private async fetchSidecarMetricsWithBootstrap(endpointUrl: string): Promise<Record<string, number | string | boolean | null>> {
 		const normalizedEndpointUrl = normalizeEndpointUrl(endpointUrl);
 		try {
 			return await fetchMetrics(normalizedEndpointUrl);
@@ -617,10 +636,26 @@ function shortMetricLabel(metricKey: string): string {
 	if (metricKey === "cpu_temperature") {
 		return "CPU Temp";
 	}
+	if (metricKey === NETWORK_DOWNLOAD_KEY) {
+		return "Download";
+	}
+	if (metricKey === NETWORK_UPLOAD_KEY) {
+		return "Upload";
+	}
 	return metricKey;
 }
 
+function usesOnlyNetworkMetrics(settings: NormalizedDisplaySettings): boolean {
+	if (!isNetworkMetricKey(settings.metricKey)) {
+		return false;
+	}
+	return settings.displayMode !== "dual" || isNetworkMetricKey(settings.secondaryMetricKey);
+}
+
 function inferUnit(metricKey: string): string {
+	if (isNetworkMetricKey(metricKey)) {
+		return " Mbps";
+	}
 	if (metricKey.includes("temperature")) {
 		return "C";
 	}
@@ -649,14 +684,12 @@ function inferUnit(metricKey: string): string {
 }
 
 function formatMetricValue(value: number, decimals: number): string {
-	if (!Number.isFinite(value)) {
-		return "0";
-	}
-	if (Math.abs(value) >= 1000) {
-		const formatted = value.toFixed(0);
+	const safeValue = sanitizeMetricNumber(value);
+	if (Math.abs(safeValue) >= 1000) {
+		const formatted = safeValue.toFixed(0);
 		return isReasonableFormattedValue(formatted) ? formatted : "0";
 	}
-	const formatted = value.toFixed(decimals);
+	const formatted = safeValue.toFixed(decimals);
 	return isReasonableFormattedValue(formatted) ? formatted : "0";
 }
 
@@ -805,8 +838,8 @@ function renderDualLineCard(
 	const chartHeight = 54;
 	const lineThickness = clampNumber(settings.lineThickness, 1, 8, 3);
 
-	const safePrimaryHistory = primaryHistory.length > 1 ? primaryHistory : primaryValue === undefined ? [] : [primaryValue, primaryValue];
-	const safeSecondaryHistory = secondaryHistory.length > 1 ? secondaryHistory : secondaryValue === undefined ? [] : [secondaryValue, secondaryValue];
+	const safePrimaryHistory = sanitizeSeries(primaryHistory.length > 1 ? primaryHistory : primaryValue === undefined ? [] : [primaryValue, primaryValue]);
+	const safeSecondaryHistory = sanitizeSeries(secondaryHistory.length > 1 ? secondaryHistory : secondaryValue === undefined ? [] : [secondaryValue, secondaryValue]);
 	const valuePool = [...safePrimaryHistory, ...safeSecondaryHistory];
 	const autoMin = valuePool.length > 0 ? Math.min(...valuePool) : 0;
 	const autoMax = valuePool.length > 0 ? Math.max(...valuePool) : 100;
@@ -933,14 +966,32 @@ function dualValueLayout(settings: NormalizedDisplaySettings): { primaryX: numbe
 	return { primaryX: x, secondaryX: x, primaryY, secondaryY, primaryLabelY, secondaryLabelY };
 }
 
+function sanitizeSeries(values: number[]): number[] {
+	if (values.length === 0) {
+		return values;
+	}
+	return values.map((value) => sanitizeMetricNumber(value));
+}
+
+function sanitizeMetricNumber(value: number): number {
+	if (!Number.isFinite(value)) {
+		return 0;
+	}
+	if (Math.abs(value) >= MAX_REASONABLE_METRIC_ABS) {
+		return 0;
+	}
+	return value;
+}
+
 function buildLinePath(values: number[], min: number, max: number, left: number, top: number, width: number, height: number, baselineOffset = 0): string {
 	if (values.length < 2) {
 		return "";
 	}
+	const safeValues = sanitizeSeries(values);
 	const span = Math.max(1, max - min);
 	const clampedBaselineOffset = Math.max(0, Math.min(height - 2, baselineOffset));
 	const chartBottom = top + height;
-	return values.map((point, index) => {
+	return safeValues.map((point, index) => {
 		const x = left + (index / Math.max(1, values.length - 1)) * width;
 		const normalized = Math.max(0, Math.min(1, (point - min) / span));
 		const y = Math.max(top, chartBottom - normalized * height - clampedBaselineOffset);
@@ -1084,7 +1135,7 @@ function renderLineChartCard(settings: NormalizedDisplaySettings, metricKey: str
 	const lineThickness = clampNumber(settings.lineThickness, 1, 8, 3);
 	const baselineOffset = clampNumber(settings.graphBaselineOffset, 0, 40, 0);
 	const lineFillStrength = clampNumber(settings.lineFillStrength, 0.1, 1, 0.65);
-	const values = history.length > 1 ? history : [value, value];
+	const values = sanitizeSeries(history.length > 1 ? history : [value, value]);
 	const autoMin = Math.min(...values);
 	const autoMax = Math.max(...values);
 	const { min, max } = resolveScaleRange(settings, autoMin, autoMax);
@@ -1338,6 +1389,9 @@ function resolveScaleRange(settings: NormalizedDisplaySettings, autoMin: number,
 		}
 		return { min: customMin, max: customMax };
 	}
+	if (!Number.isFinite(autoMin) || !Number.isFinite(autoMax)) {
+		return { min: 0, max: 1 };
+	}
 	if (autoMax <= autoMin) {
 		return { min: autoMin, max: autoMin + 1 };
 	}
@@ -1360,6 +1414,7 @@ function accentColor(metricKey: string): string {
 	if (metricKey.includes("power")) return "#22c55e";
 	if (metricKey.includes("clock")) return "#a78bfa";
 	if (metricKey.includes("fan")) return "#38bdf8";
+	if (isNetworkMetricKey(metricKey)) return "#34d399";
 	return "#22d3ee";
 }
 
