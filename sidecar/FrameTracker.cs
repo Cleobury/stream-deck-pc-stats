@@ -23,6 +23,7 @@ sealed class FrameTracker : IDisposable
 	private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(10);
 	private const double LiveWindowMs = 1000;
 	private const double HistoryWindowMs = 30_000;
+	private const double StaleAfterMs = 2500;
 
 	// DXGI apps report the same frame at both layers, so kernel events only count for processes without recent DXGI ones.
 	private const double DxgiPreferredForMs = 2000;
@@ -60,12 +61,15 @@ sealed class FrameTracker : IDisposable
 				return default;
 			}
 
-			// Counting frames, rather than averaging their gaps, stays honest when an app draws in short bursts.
-			var liveFrameCount = history.Count(frame => nowMs - frame.AtMs <= LiveWindowMs);
-			if (liveFrameCount == 0)
+			// Windows delivers events in batches about a second apart, so the window ends at the newest frame, not now.
+			var newestFrameMs = history.Last().AtMs;
+			if (nowMs - newestFrameMs > StaleAfterMs)
 			{
 				return default;
 			}
+
+			// Counting frames, rather than averaging their gaps, stays honest when an app draws in short bursts.
+			var liveFrameCount = history.Count(frame => newestFrameMs - frame.AtMs <= LiveWindowMs);
 
 			var slowestFirst = history.Select(frame => frame.Milliseconds).OrderDescending().ToList();
 			var slowestPercent = slowestFirst.Take(Math.Max(1, slowestFirst.Count / 100)).Average();
