@@ -11,12 +11,21 @@ namespace StatsReader;
 sealed class FrameTracker : IDisposable
 {
 	private const string SessionName = "StreamDeckStatsReader";
-	private const int PresentStartEventId = 42;
-	private const ulong PresentKeywords = 0x8000000000000001;
+	private const int DxgiPresentStartEventId = 42;
+	private const ulong DxgiPresentKeywords = 0x8000000000000001;
 	private static readonly Guid DxgiProvider = new("CA11C036-0102-4A2D-A6AD-F03CFED5D3C9");
+
+	// The kernel graphics layer sees every API's frames, including Vulkan and OpenGL.
+	private const int KernelPresentEventId = 184;
+	private const ulong KernelBaseKeyword = 0x1;
+	private static readonly Guid KernelGraphicsProvider = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
+
 	private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(10);
 	private const double LiveWindowMs = 1000;
 	private const double HistoryWindowMs = 30_000;
+
+	// DXGI apps report the same frame at both layers, so kernel events only count for processes without recent DXGI ones.
+	private const double DxgiPreferredForMs = 2000;
 
 	private readonly Dictionary<int, Queue<Frame>> framesByProcess = [];
 	private readonly Lock framesLock = new();
@@ -51,15 +60,16 @@ sealed class FrameTracker : IDisposable
 				return default;
 			}
 
-			var liveFrames = history.Where(frame => nowMs - frame.AtMs <= LiveWindowMs).ToList();
-			if (liveFrames.Count == 0)
+			// Counting frames, rather than averaging their gaps, stays honest when an app draws in short bursts.
+			var liveFrameCount = history.Count(frame => nowMs - frame.AtMs <= LiveWindowMs);
+			if (liveFrameCount == 0)
 			{
 				return default;
 			}
 
 			var slowestFirst = history.Select(frame => frame.Milliseconds).OrderDescending().ToList();
 			var slowestPercent = slowestFirst.Take(Math.Max(1, slowestFirst.Count / 100)).Average();
-			return new FrameStats(1000 / liveFrames.Average(frame => frame.Milliseconds), 1000 / slowestPercent);
+			return new FrameStats(liveFrameCount * 1000 / LiveWindowMs, 1000 / slowestPercent);
 		}
 	}
 
@@ -81,6 +91,7 @@ sealed class FrameTracker : IDisposable
 	private void Run()
 	{
 		var lastPresentByProcess = new Dictionary<int, double>();
+		var lastDxgiPresentByProcess = new Dictionary<int, double>();
 
 		while (!disposed)
 		{
@@ -88,12 +99,25 @@ sealed class FrameTracker : IDisposable
 			{
 				using var trace = new TraceEventSession(SessionName) { StopOnDispose = true };
 				session = trace;
-				trace.EnableProvider(DxgiProvider, TraceEventLevel.Informational, PresentKeywords);
+				trace.EnableProvider(DxgiProvider, TraceEventLevel.Informational, DxgiPresentKeywords);
+				trace.EnableProvider(
+					KernelGraphicsProvider,
+					TraceEventLevel.Informational,
+					KernelBaseKeyword,
+					new TraceEventProviderOptions { EventIDsToEnable = [KernelPresentEventId] });
 				trace.Source.AllEvents += data =>
 				{
-					if ((int)data.ID == PresentStartEventId)
+					var id = (int)data.ID;
+					var atMs = data.TimeStampRelativeMSec;
+					if (data.ProviderGuid == DxgiProvider && id == DxgiPresentStartEventId)
 					{
-						Record(data.ProcessID, data.TimeStampRelativeMSec, lastPresentByProcess);
+						lastDxgiPresentByProcess[data.ProcessID] = atMs;
+						Record(data.ProcessID, atMs, lastPresentByProcess);
+					}
+					else if (data.ProviderGuid == KernelGraphicsProvider && id == KernelPresentEventId
+						&& (!lastDxgiPresentByProcess.TryGetValue(data.ProcessID, out var dxgiAtMs) || atMs - dxgiAtMs > DxgiPreferredForMs))
+					{
+						Record(data.ProcessID, atMs, lastPresentByProcess);
 					}
 				};
 				trace.Source.Process();
@@ -103,6 +127,7 @@ sealed class FrameTracker : IDisposable
 				// Keep retrying: the tiles show 0 FPS until capture comes back.
 			}
 			lastPresentByProcess.Clear();
+			lastDxgiPresentByProcess.Clear();
 			if (!disposed)
 			{
 				Thread.Sleep(RetryDelay);

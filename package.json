@@ -1,8 +1,8 @@
 {
     "scripts": {
         "build": "rollup -c",
-        "build:sidecar": "dotnet publish sidecar -c Release -o com.lee-cleobury.afterburner-display.sdPlugin/bin",
-        "watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.lee-cleobury.afterburner-display\""
+        "build:sidecar": "dotnet publish sidecar -c Release -o com.lee-cleobury.pc-stats.sdPlugin/bin",
+        "watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.lee-cleobury.pc-stats\""
     },
     "type": "module",
     "devDependencies": {

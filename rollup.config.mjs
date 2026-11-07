@@ -7,7 +7,7 @@ import path from "node:path";
 import url from "node:url";
 
 const isWatching = !!process.env.ROLLUP_WATCH;
-const sdPlugin = "com.lee-cleobury.afterburner-display.sdPlugin";
+const sdPlugin = "com.lee-cleobury.pc-stats.sdPlugin";
 
 /**
  * @type {import('rollup').RollupOptions}

@@ -23,7 +23,7 @@ const SVG_SIZE = 144;
 const CARD_RADIUS = 18;
 const MAX_REASONABLE_METRIC_ABS = 1_000_000_000;
 
-@action({ UUID: "com.lee-cleobury.afterburner-display.increment" })
+@action({ UUID: "com.lee-cleobury.pc-stats.metric" })
 export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	private readonly settingsByActionId = new Map<string, NormalizedDisplaySettings>();
 	private readonly historyByActionId = new Map<string, number[]>();

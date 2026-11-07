@@ -6,8 +6,8 @@ node_modules/
 .rollup.cache/
 
 # Stream Deck plugin runtime/build artifacts
-com.lee-cleobury.afterburner-display.sdPlugin/bin/
-com.lee-cleobury.afterburner-display.sdPlugin/logs/
+com.lee-cleobury.pc-stats.sdPlugin/bin/
+com.lee-cleobury.pc-stats.sdPlugin/logs/
 
 # Editor / OS noise
 .vscode/

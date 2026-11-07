@@ -17,11 +17,11 @@ The Stream Deck app must already be installed. Stop and tell me if it is not.
 1. Make sure Git, Node.js 24 and the .NET 10 SDK are installed. Use winget for anything missing.
 2. Clone the repo into a permanent folder. It can't be moved after setup.
 3. In the repo, run: npm install, npm run build, npm run build:sidecar
-4. Link the plugin: npx streamdeck link com.lee-cleobury.afterburner-display.sdPlugin
-5. Read com.lee-cleobury.afterburner-display.sdPlugin/bin/install-startup.ps1, then run it as
+4. Link the plugin: npx streamdeck link com.lee-cleobury.pc-stats.sdPlugin
+5. Read com.lee-cleobury.pc-stats.sdPlugin/bin/install-startup.ps1, then run it as
    administrator. If you are not elevated, launch it with
    Start-Process powershell -Verb RunAs -Wait -ArgumentList '-ExecutionPolicy Bypass -File "<full path>"'
-6. Restart the plugin: npx streamdeck restart com.lee-cleobury.afterburner-display
+6. Restart the plugin: npx streamdeck restart com.lee-cleobury.pc-stats
 7. Check http://localhost:9696/metrics. Success means status is "ok", cpu_temperature is present
    and notes is empty.
 
@@ -37,13 +37,13 @@ To install by hand, follow [Requirements](#requirements) and [Setup](#setup).
 | `cpu_usage`, `ram_usage` | Windows |
 | `gpu_usage`, `gpu_temperature`, `power`, `memory_usage` (VRAM) | NVML, included with the NVIDIA driver |
 | `cpu_temperature`, `cpu_power` | LibreHardwareMonitorLib, via the PawnIO driver |
-| `framerate`, `framerate_1_low` | DXGI frame events for the foreground app |
+| `framerate`, `framerate_1_low` | Windows frame events for the foreground app (DXGI, plus the kernel graphics layer for other APIs) |
 | `network_download_mbps`, `network_upload_mbps` | Windows, read by the plugin itself |
 
 Notes:
 
 - Frame rates come from events Windows publishes, so nothing is injected into games.
-- FPS reads `0` on the desktop, in apps that render in a separate process (such as browsers), and in Vulkan and OpenGL games.
+- FPS covers DirectX, Vulkan and OpenGL. It reads `0` on the desktop and in apps that render in a separate process (such as browsers).
 - 1% lows cover the last 30 seconds of the foreground app.
 - GPU stats are NVIDIA only.
 
@@ -142,8 +142,8 @@ npm run watch
 - `src/network-stats.ts`: network speed sampling
 - `sidecar/`: source for `StatsReader.exe` (.NET 10, published as one self-contained exe)
 - `sidecar/install-startup.ps1`: one-time setup, copied to `bin` by `npm run build:sidecar`
-- `com.lee-cleobury.afterburner-display.sdPlugin/manifest.json`: Stream Deck plugin manifest
-- `com.lee-cleobury.afterburner-display.sdPlugin/ui/increment-counter.html`: Property Inspector UI
+- `com.lee-cleobury.pc-stats.sdPlugin/manifest.json`: Stream Deck plugin manifest
+- `com.lee-cleobury.pc-stats.sdPlugin/ui/increment-counter.html`: Property Inspector UI
 - `rollup.config.mjs`: plugin build configuration
 
 ## Sidecar Endpoint
@@ -167,9 +167,9 @@ npm run watch
 
 ## Development Notes
 
-- Output bundle path: `com.lee-cleobury.afterburner-display.sdPlugin/bin/plugin.js`
+- Output bundle path: `com.lee-cleobury.pc-stats.sdPlugin/bin/plugin.js`
 - In non-watch builds, output is minified.
-- The plugin keeps its original `com.lee-cleobury.afterburner-display` ID and folder name. Changing them would remove every tile from existing Stream Deck profiles.
+- The plugin keeps its original `com.lee-cleobury.pc-stats` ID and folder name. Changing them would remove every tile from existing Stream Deck profiles.
 - An elevated sidecar replaces a non-elevated one, so the login task and the plugin's auto-start can't conflict.
 
 ## Troubleshooting
@@ -182,7 +182,6 @@ npm run watch
   - Run the one-time setup, then confirm the `StatsReader` task exists in Task Scheduler
 - **FPS shows 0 in a game**
   - Make sure the game is the foreground window
-  - Vulkan and OpenGL games are not counted
 - **No metrics in dropdown**
   - Ensure the response has a `metrics` object
   - Check the endpoint URL in Property Inspector

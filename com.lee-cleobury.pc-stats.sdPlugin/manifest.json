@@ -5,7 +5,7 @@
 	"Actions": [
 		{
 			"Name": "Metric Display",
-			"UUID": "com.lee-cleobury.afterburner-display.increment",
+			"UUID": "com.lee-cleobury.pc-stats.metric",
 			"Icon": "imgs/actions/counter/icon",
 			"Tooltip": "Displays a live PC stat from the StatsReader sidecar.",
 			"PropertyInspectorPath": "ui/increment-counter.html",
@@ -43,5 +43,5 @@
 		"Version": "24",
 		"Debug": "enabled"
 	},
-	"UUID": "com.lee-cleobury.afterburner-display"
+	"UUID": "com.lee-cleobury.pc-stats"
 }
