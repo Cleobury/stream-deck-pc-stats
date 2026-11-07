@@ -148,6 +148,7 @@
                         <option value="split">Split Values</option>
                         <option value="multi-line">Multi-Line Graph</option>
                         <option value="multi-dot">Multi-Dot Fill</option>
+                    <option value="ring">Split Ring</option>
                     </select>
                 </div>
                 <div class="field" style="margin-bottom:8px;">
@@ -694,7 +695,7 @@
         }
 
         function normalizeDualViewStyle(value) {
-            if (value === "multi-line" || value === "multi-dot") {
+            if (value === "multi-line" || value === "multi-dot" || value === "ring") {
                 return value;
             }
             return "split";

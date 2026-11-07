@@ -32,6 +32,7 @@ listener.Start();
 
 using var frames = new FrameTracker();
 var gpu = NvidiaGpu.TryOpen();
+var cpuPower = CpuPower.TryOpen();
 using var cpuSensors = isElevated ? CpuSensors.TryOpen() : null;
 var system = new SystemStats();
 
@@ -42,7 +43,7 @@ if (gpu is null)
 }
 if (cpuSensors is null)
 {
-	notes.Add(isElevated ? "CPU sensors unavailable: PawnIO driver not found" : "CPU temperature and power need install-startup.ps1");
+	notes.Add(isElevated ? "CPU temperature unavailable: PawnIO driver not found" : "CPU temperature needs setup: approve the prompt or run install-startup.ps1");
 }
 
 var responseBody = Array.Empty<byte>();
@@ -54,6 +55,7 @@ var sampler = new Thread(() =>
 		var metrics = new Dictionary<string, double>();
 		system.AddTo(metrics);
 		gpu?.AddTo(metrics);
+		cpuPower?.AddTo(metrics);
 		cpuSensors?.AddTo(metrics);
 		frames.AddTo(metrics);
 

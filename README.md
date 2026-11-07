@@ -36,7 +36,8 @@ To install by hand, follow [Requirements](#requirements) and [Setup](#setup).
 | --- | --- |
 | `cpu_usage`, `ram_usage` | Windows |
 | `gpu_usage`, `gpu_temperature`, `power`, `memory_usage` (VRAM) | NVML, included with the NVIDIA driver |
-| `cpu_temperature`, `cpu_power` | LibreHardwareMonitorLib, via the PawnIO driver |
+| `cpu_power` | Windows Energy Meter counter |
+| `cpu_temperature` | LibreHardwareMonitorLib, via the PawnIO driver |
 | `framerate`, `framerate_1_low` | Windows frame events for the foreground app (DXGI, plus the kernel graphics layer for other APIs) |
 | `network_download_mbps`, `network_upload_mbps` | Windows, read by the plugin itself |
 
@@ -46,6 +47,7 @@ Notes:
 - FPS covers DirectX, Vulkan and OpenGL. It reads `0` on the desktop and in apps that render in a separate process (such as browsers).
 - 1% lows cover the last 30 seconds of the foreground app.
 - GPU stats are NVIDIA only.
+- CPU temperature is the only stat that needs admin rights, because Windows has no real CPU temperature reading without kernel access. CPU power falls back to LibreHardwareMonitorLib on CPUs without an Energy Meter counter.
 
 ## Features
 
@@ -57,7 +59,7 @@ Notes:
   - Filled line chart
   - Gauge
   - Dot matrix
-- Single or dual metric tiles
+- Single or dual metric tiles, including a Split Ring style with a half-ring meter, value and icon for each metric, in that metric's accent color
 - Theme presets (`default`, `neon`, `minimal`, `retro`) plus fully custom colors
 - Independent label/value styling controls:
   - Position and size
@@ -106,13 +108,15 @@ Build the sidecar (stop any running `StatsReader.exe` first):
 npm run build:sidecar
 ```
 
-Load the `.sdPlugin` folder into Stream Deck, then run the one-time setup from an administrator PowerShell window, in the plugin's `bin` folder:
+Load the `.sdPlugin` folder into Stream Deck. On first run, after about 20 seconds, Windows asks once for approval to finish setup. That installs the PawnIO driver if it is missing and starts `StatsReader.exe` elevated at login. If you decline, CPU temperature shows N/A, everything else still works, and the prompt does not return.
+
+To run the same setup by hand, use an administrator PowerShell window in the plugin's `bin` folder:
 
 ```powershell
 .\install-startup.ps1
 ```
 
-This installs the PawnIO driver if it is missing, then starts `StatsReader.exe` elevated at login. CPU temperature and power need it; without it they show N/A and everything else still works. To remove the login task:
+To remove the login task:
 
 ```powershell
 .\install-startup.ps1 -Uninstall
@@ -140,8 +144,9 @@ npm run watch
 - `src/plugin.ts`: plugin entry and action registration
 - `src/actions/increment-counter.ts`: main telemetry action logic and SVG rendering
 - `src/network-stats.ts`: network speed sampling
+- `src/cpu-sensor-setup.ts`: first-run approval prompt for CPU temperature
 - `sidecar/`: source for `StatsReader.exe` (.NET 10, published as one self-contained exe)
-- `sidecar/install-startup.ps1`: one-time setup, copied to `bin` by `npm run build:sidecar`
+- `sidecar/install-startup.ps1`: setup script, copied to `bin` by `npm run build:sidecar`
 - `com.lee-cleobury.pc-stats.sdPlugin/manifest.json`: Stream Deck plugin manifest
 - `com.lee-cleobury.pc-stats.sdPlugin/ui/increment-counter.html`: Property Inspector UI
 - `rollup.config.mjs`: plugin build configuration
@@ -177,9 +182,9 @@ npm run watch
 - **Blank/ERR tile**
   - The plugin tries to start the sidecar itself. If the tile still shows an error, check the endpoint in a browser: `http://localhost:9696/metrics`
   - Confirm `StatsReader.exe` is present in `bin/` and was not blocked by antivirus
-- **CPU temperature or power shows N/A**
+- **CPU temperature shows N/A**
   - Check `notes` in the endpoint response
-  - Run the one-time setup, then confirm the `StatsReader` task exists in Task Scheduler
+  - Run `install-startup.ps1`, then confirm the `StatsReader` task exists in Task Scheduler
 - **FPS shows 0 in a game**
   - Make sure the game is the foreground window
 - **No metrics in dropdown**

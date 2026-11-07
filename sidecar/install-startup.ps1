@@ -1,5 +1,5 @@
-# One-time setup, run as administrator. Installs the PawnIO driver if it is missing, then starts StatsReader
-# elevated at login so CPU temperature and power work.
+# One-time setup, run as administrator. The plugin offers this itself on first run, through a Windows prompt.
+# Installs the PawnIO driver if it is missing, then starts StatsReader elevated at login so CPU temperature works.
 # Remove the login task again with: .\install-startup.ps1 -Uninstall
 param([switch]$Uninstall)
 
@@ -21,7 +21,7 @@ if (-not (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\PawnIO')) {
 	Write-Host 'Installing the PawnIO driver...'
 	winget install --exact --id namazso.PawnIO --silent --accept-package-agreements --accept-source-agreements
 	if (-not (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\PawnIO')) {
-		Write-Warning 'PawnIO did not install, so CPU temperature and power will show N/A.'
+		Write-Warning 'PawnIO did not install, so CPU temperature will show N/A.'
 	}
 }
 

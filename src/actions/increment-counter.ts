@@ -16,7 +16,9 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { promptForCpuSensorSetupIfNeeded } from "../cpu-sensor-setup";
 import { isNetworkMetricKey, NETWORK_DOWNLOAD_KEY, NETWORK_UPLOAD_KEY, sampleNetworkMetrics } from "../network-stats";
+import { renderRingCardSvg } from "../ring-card";
 
 const SIDECAR_EXE_NAME = "StatsReader.exe";
 const SVG_SIZE = 144;
@@ -28,6 +30,7 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	private readonly settingsByActionId = new Map<string, NormalizedDisplaySettings>();
 	private readonly historyByActionId = new Map<string, number[]>();
 	private readonly secondaryHistoryByActionId = new Map<string, number[]>();
+	private readonly lastMetricsByEndpoint = new Map<string, Record<string, number | string | boolean | null>>();
 	private pollTimer: NodeJS.Timeout | undefined;
 	private sidecarBootPromise: Promise<void> | undefined;
 
@@ -40,15 +43,20 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 			await ev.action.setSettings(settings);
 		}
 
+		// Tiles reappear on every page change, so redraw the last reading rather than flashing a loading card.
+		const lastMetrics = this.lastMetricsByEndpoint.get(settings.endpointUrl);
 		await ev.action.setTitle("");
-		await ev.action.setImage(renderStatusCard("Connecting", "Loading", "#8be9fd"));
+		if (lastMetrics && ev.action.isKey()) {
+			await this.renderMetricForAction(ev.action, settings, lastMetrics);
+		} else {
+			await ev.action.setImage(renderStatusCard("Connecting", "Loading", "#8be9fd"));
+		}
 		this.ensurePolling();
 	}
 
 	override onWillDisappear(ev: WillDisappearEvent<DisplaySettings>): void {
+		// Histories stay, so graphs and ring scales carry on when the page comes back.
 		this.settingsByActionId.delete(ev.action.id);
-		this.historyByActionId.delete(ev.action.id);
-		this.secondaryHistoryByActionId.delete(ev.action.id);
 		if (this.settingsByActionId.size === 0 && this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
@@ -113,6 +121,7 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 		for (const [endpointUrl, endpointActions] of groups.entries()) {
 			try {
 				const metrics = await this.fetchMetricsWithBootstrap(endpointUrl);
+				this.lastMetricsByEndpoint.set(endpointUrl, metrics);
 				await Promise.all(endpointActions.map(async (action) => {
 					const settings = this.settingsByActionId.get(action.id) ?? normalizeSettings({ endpointUrl });
 					await this.renderMetricForAction(action, settings, metrics);
@@ -206,6 +215,9 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 
 	private async fetchMetricsWithBootstrap(endpointUrl: string): Promise<Record<string, number | string | boolean | null>> {
 		const [sidecarMetrics, networkMetrics] = await Promise.all([this.fetchSidecarMetricsWithBootstrap(endpointUrl), sampleNetworkMetrics()]);
+		if (shouldAttemptSidecarBoot(normalizeEndpointUrl(endpointUrl))) {
+			promptForCpuSensorSetupIfNeeded(sidecarMetrics);
+		}
 		return { ...sidecarMetrics, ...networkMetrics };
 	}
 
@@ -314,7 +326,7 @@ type Theme = "default" | "neon" | "minimal" | "retro" | "custom";
 
 type DisplayMode = "single" | "dual";
 
-type DualViewStyle = "split" | "multi-line" | "multi-dot";
+type DualViewStyle = "split" | "multi-line" | "multi-dot" | "ring";
 
 type DualValueLayout = "top-bottom" | "left-right";
 
@@ -459,7 +471,7 @@ function normalizeDisplayMode(value: string | undefined): DisplayMode {
 }
 
 function normalizeDualViewStyle(value: string | undefined): DualViewStyle {
-	if (value === "multi-line" || value === "multi-dot") {
+	if (value === "multi-line" || value === "multi-dot" || value === "ring") {
 		return value;
 	}
 	return "split";
@@ -746,7 +758,25 @@ function renderDualMetricCard(
 	if (settings.dualViewStyle === "multi-dot") {
 		return renderDualDotCard(settings, primary, secondary, primaryHistory, secondaryHistory, primaryValue, secondaryValue, primaryMetricKey, secondaryMetricKey);
 	}
+	if (settings.dualViewStyle === "ring") {
+		const palette = themeFor(settings);
+		return svgToDataUri(renderRingCardSvg(
+			{ metricKey: primaryMetricKey, valueText: primary.valueText, accent: primary.accent, fraction: ringFraction(settings, primary.unit, primaryValue, primaryHistory) },
+			{ metricKey: secondaryMetricKey, valueText: secondary.valueText, accent: secondary.accent, fraction: ringFraction(settings, secondary.unit, secondaryValue, secondaryHistory) },
+			{ backgroundDefs: backgroundGradientDef(settings, palette), fontFamily: palette.fontFamily },
+		));
+	}
 	return renderDualSplitCard(settings, primary, secondary);
+}
+
+function ringFraction(settings: NormalizedDisplaySettings, unit: string, value: number | undefined, history: number[]): number {
+	if (value === undefined) {
+		return 0;
+	}
+	// Percentages have a natural scale; anything else fills relative to its recent peak.
+	const autoMax = unit === "%" ? 100 : Math.max(1, ...history);
+	const { min, max } = resolveScaleRange(settings, 0, autoMax);
+	return max > min ? (value - min) / (max - min) : 0;
 }
 
 function renderDualSplitCard(settings: NormalizedDisplaySettings, primary: MetricLine, secondary: MetricLine): string {

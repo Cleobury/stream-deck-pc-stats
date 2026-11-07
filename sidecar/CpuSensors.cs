@@ -2,7 +2,7 @@ using LibreHardwareMonitor.Hardware;
 
 namespace StatsReader;
 
-/// <summary>CPU temperature and power. These need an elevated process and the PawnIO driver.</summary>
+/// <summary>CPU temperature. Reading it needs an elevated process and the PawnIO driver.</summary>
 sealed class CpuSensors : IDisposable
 {
 	private readonly Computer computer;
@@ -46,10 +46,11 @@ sealed class CpuSensors : IDisposable
 		{
 			metrics["cpu_temperature"] = temperature;
 		}
+		// Only a fallback: CpuPower reads this without admin rights where Windows supports it.
 		var power = cpu.Sensors.FirstOrDefault(sensor => sensor is { SensorType: SensorType.Power, Name: "Package" });
 		if (power?.Value is { } watts)
 		{
-			metrics["cpu_power"] = watts;
+			metrics.TryAdd("cpu_power", watts);
 		}
 	}
 
