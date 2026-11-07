@@ -42,14 +42,6 @@ const config = {
 			name: "emit-module-package-file",
 			generateBundle() {
 				this.emitFile({ fileName: "package.json", source: `{ "type": "module" }`, type: "asset" });
-				// Only emit the EXE when it isn't already present (it may be locked by a running sidecar).
-				if (!fs.existsSync(`${sdPlugin}/bin/AfterburnerReader.exe`)) {
-					this.emitFile({
-						fileName: "AfterburnerReader.exe",
-						source: fs.readFileSync("src/AfterburnerReader.exe"),
-						type: "asset",
-					});
-				}
 			}
 		}
 	]

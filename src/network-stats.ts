@@ -40,7 +40,7 @@ export function isNetworkMetricKey(metricKey: string): boolean {
 }
 
 /**
- * Returns current download/upload rates in megabits per second, read from the OS rather than Afterburner.
+ * Returns current download/upload rates in megabits per second, read from the OS rather than the sidecar.
  * Returns an empty object when the platform is unsupported or the reader has stopped reporting.
  */
 export async function sampleNetworkMetrics(): Promise<Record<string, number>> {

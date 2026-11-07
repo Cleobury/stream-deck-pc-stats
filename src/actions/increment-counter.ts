@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { isNetworkMetricKey, NETWORK_DOWNLOAD_KEY, NETWORK_UPLOAD_KEY, sampleNetworkMetrics } from "../network-stats";
 
-const SIDECAR_EXE_NAME = "AfterburnerReader.exe";
+const SIDECAR_EXE_NAME = "StatsReader.exe";
 const SVG_SIZE = 144;
 const CARD_RADIUS = 18;
 const MAX_REASONABLE_METRIC_ABS = 1_000_000_000;
@@ -240,19 +240,19 @@ export class IncrementCounter extends SingletonAction<DisplaySettings> {
 	}
 
 	private async ensureSidecarRunningInternal(): Promise<void> {
-		if (await isAfterburnerReaderRunning()) {
+		if (await isSidecarRunning()) {
 			return;
 		}
-		const exePath = await resolveAfterburnerReaderPath();
+		const exePath = await resolveSidecarPath();
 		if (!exePath) {
-			streamDeck.logger.error("AfterburnerReader.exe not found in plugin output folder.");
+			streamDeck.logger.error(`${SIDECAR_EXE_NAME} not found in plugin output folder.`);
 			return;
 		}
 		try {
 			const child = spawn(exePath, [], { detached: true, stdio: "ignore", windowsHide: true });
 			child.unref();
 		} catch (error) {
-			streamDeck.logger.error(`Failed to start AfterburnerReader.exe: ${String(error)}`);
+			streamDeck.logger.error(`Failed to start ${SIDECAR_EXE_NAME}: ${String(error)}`);
 		}
 	}
 }
@@ -1473,7 +1473,7 @@ function shouldAttemptSidecarBoot(endpointUrl: string): boolean {
 	}
 }
 
-async function resolveAfterburnerReaderPath(): Promise<string | null> {
+async function resolveSidecarPath(): Promise<string | null> {
 	const pluginBinDir = path.dirname(fileURLToPath(import.meta.url));
 	const candidates = [path.join(pluginBinDir, SIDECAR_EXE_NAME), path.join(pluginBinDir, "..", SIDECAR_EXE_NAME)];
 	for (const candidatePath of candidates) {
@@ -1487,7 +1487,7 @@ async function resolveAfterburnerReaderPath(): Promise<string | null> {
 	return null;
 }
 
-async function isAfterburnerReaderRunning(): Promise<boolean> {
+async function isSidecarRunning(): Promise<boolean> {
 	try {
 		const taskListResponse = await fetch(normalizeEndpointUrl(DEFAULT_SETTINGS.endpointUrl), { headers: { accept: "application/json" } });
 		return taskListResponse.ok;

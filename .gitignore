@@ -14,3 +14,6 @@ com.lee-cleobury.afterburner-display.sdPlugin/logs/
 .idea/
 Thumbs.db
 .DS_Store
+# Sidecar build output
+sidecar/bin/
+sidecar/obj/
